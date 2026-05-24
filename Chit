@@ -1,4 +1,4 @@
--- ЧАСТЬ 1/3: GHOST ULTRA v7.3 – ЯДРО, АНТИДЕТЕКТ, СОЗДАНИЕ МЕНЮ И ВКЛАДОК
+
 if getgenv().__GHOST_ULTRA_LOADED then return end
 getgenv().__GHOST_ULTRA_LOADED = true
 
@@ -336,7 +336,6 @@ end
 init_antidetect()
 switch_tab("CORE")
 getgenv()._GHOST_CORE = { Ghost = Ghost, get_panel = get_panel, create_state_button = create_state_button, create_slider = create_slider, Players = Players, LocalPlayer = LocalPlayer, RunService = RunService, Workspace = Workspace, ReplicatedStorage = ReplicatedStorage }
--- ЧАСТЬ 2/3: НЕВИДИМОСТЬ И ТЕЛЕПОРТ (ВСТАВЛЯЙ СРАЗУ ПОСЛЕ ЧАСТИ 1)
 local core = getgenv()._GHOST_CORE
 local Ghost = core.Ghost
 local get_panel = core.get_panel
@@ -781,7 +780,6 @@ end
 
 Ghost.Shadow = Shadow
 Ghost.Teleport = Teleport
--- ЧАСТЬ 3/3: КАМЕРА ИГРОКА, ЧАТ-СПАЙ, НАСТРОЙКИ (ВСТАВЛЯЙ ПОСЛЕ ЧАСТИ 2)
 local core = getgenv()._GHOST_CORE
 local Ghost = core.Ghost
 local get_panel = core.get_panel
@@ -1136,48 +1134,8 @@ if cameraPanel then
     chatInfo.Parent = chatFrame
 end
 
-local settingsPanel = get_panel("SETTINGS")
-if settingsPanel then
-    for _, c in pairs(settingsPanel:GetChildren()) do c:Destroy() end
-    local y = 10
-    local animSlider = create_slider(settingsPanel, "Скорость анимации меню", 0.1, 0.8, Ghost.Settings.Menu.AnimSpeed, function(v)
-        Ghost.Settings.Menu.AnimSpeed = v
-    end)
-    animSlider.Position = UDim2.new(0, 10, 0, y)
-    y = y + 70
-    local reloadBtn = Instance.new("TextButton")
-    reloadBtn.Size = UDim2.new(1, -20, 0, 44)
-    reloadBtn.Position = UDim2.new(0, 10, 0, y)
-    reloadBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
-    reloadBtn.Text = "ПЕРЕЗАПУСТИТЬ АНТИДЕТЕКТ"
-    reloadBtn.TextColor3 = Color3.new(1, 1, 1)
-    reloadBtn.Font = Enum.Font.GothamBold
-    reloadBtn.TextSize = 13
-    reloadBtn.Parent = settingsPanel
-    reloadBtn.MouseButton1Click:Connect(function()
-        init_antidetect()
-        print("[Settings] Антидетект перезапущен")
-    end)
-    y = y + 60
-    local statusLabel = Instance.new("TextLabel")
-    statusLabel.Size = UDim2.new(1, -20, 0, 60)
-    statusLabel.Position = UDim2.new(0, 10, 0, y)
-    statusLabel.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
-    statusLabel.BackgroundTransparency = 0.3
-    statusLabel.Text = "СТАТУС: АКТИВЕН\nВерсия 7.3\nDelta Executor"
-    statusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
-    statusLabel.TextWrapped = true
-    statusLabel.Font = Enum.Font.Gotham
-    statusLabel.TextSize = 12
-    statusLabel.Parent = settingsPanel
-end
-
 Ghost.ChatSpy = ChatSpy
 Ghost.Spectate = Spectate
 
-print("[Ghost] ЧАСТЬ 3 загружена: камера игрока и чат-спай готовы.")
-print("[Ghost] ============================================")
-print("[Ghost] ПОЛНАЯ ЗАГРУЗКА ЗАВЕРШЕНА! МЕНЮ ПОЛНОСТЬЮ РАБОТАЕТ.")
-print("[Ghost] ВКЛАДКИ: SHADOW (невидимость+телепорт), CAMERA (камера+чат)")
-print("[Ghost] Наслаждайся, смертный. Абсолютный Коджер сделал своё дело.")
-print("[Ghost] ============================================")
+print("[Ghost] Часть 3 загружена. Камера и чат-спай готовы.")
+print("[Ghost] ПОЛНАЯ ЗАГРУЗКА ЗАВЕРШЕНА. МЕНЮ РАБОТАЕТ.")
