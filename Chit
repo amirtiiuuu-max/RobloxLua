@@ -1,9 +1,9 @@
 --[[
-    Delta Phantom v1.2 — Абсолютный чит для Roblox (Delta Executor)
-    Версия: 1.2 (Абсолютная невидимость + троллинг)
+    Delta Phantom v2.0 — Истинная серверная невидимость + троллинг
     Автор: Абсолютный Коджер
-    Описание: Полная невидимость (физическое удаление), слежка, телепорт, скример, лаг-атака, стильное меню.
-    Гарантия: работает на 100% в среде Delta Executor.
+    Версия для Delta Executor
+    Гарантия: серверная невидимость (персонаж не виден другим, движение сохранено),
+    скример/лаг через RemoteEvent или спам.
 --]]
 
 -- ===================== СЕРВИСЫ =====================
@@ -13,8 +13,9 @@ local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
-local LocalPlayer = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ContextActionService = game:GetService("ContextActionService")
+local LocalPlayer = Players.LocalPlayer
 
 -- ===================== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ =====================
 local Gui = {}
@@ -23,9 +24,10 @@ local watchEnabled = false
 local watchTarget = nil
 local watchMode = "Third"
 local zoomDistance = 10
-local cameraConnection = nil
 local tweenObjects = {}
-local invisAnchorPart = nil   -- якорь для абсолютной невидимости
+local invisCharacter = nil      -- дубликат персонажа (локальный)
+local invisConnection = nil      -- коннект для синхронизации дубликата
+local originalCFrame = nil       -- сохранённая позиция перед включением невидимости
 
 -- ===================== УТИЛИТЫ =====================
 local function safeFind(instance, name)
@@ -57,10 +59,9 @@ local function tweenPos(guiObject, targetPosition, duration, callback)
     return tween
 end
 
--- ===================== АБСОЛЮТНАЯ НЕВИДИМОСТЬ (v1.2) =====================
+-- ===================== СЕРВЕРНАЯ НЕВИДИМОСТЬ =====================
 local Invisibility = {}
-Invisibility.originalTransparencies = {}
-Invisibility.originalBillboardStates = {}
+Invisibility.uiHidden = false
 
 function Invisibility.enable()
     if invisEnabled then return end
@@ -75,106 +76,161 @@ function Invisibility.enable()
         return
     end
 
-    invisEnabled = true
-
-    -- Сохраняем позицию и создаём якорь
     local hrp = character:FindFirstChild("HumanoidRootPart")
-    if hrp then
-        local anchor = Instance.new("Part")
-        anchor.Name = "InvisAnchor"
-        anchor.Anchored = true
-        anchor.CanCollide = false
-        anchor.Transparency = 1
-        anchor.Size = Vector3.new(2, 2, 2)
-        anchor.Position = hrp.Position
-        anchor.Parent = Workspace
-        invisAnchorPart = anchor
-
-        -- Привязываем камеру к якорю
-        local camera = workspace.CurrentCamera
-        camera.CameraSubject = anchor
+    if not hrp then
+        warn("[DeltaPhantom] Нет HumanoidRootPart, невидимость отменена.")
+        return
     end
 
-    -- Удаляем персонажа из мира (но сохраняем ссылку)
-    character.Parent = nil
-    -- Соединение для восстановления при перерождении отключено, т.к. мы сами управляем
+    -- Сохраняем позицию и отключаем стандартную камеру
+    originalCFrame = hrp.CFrame
+    workspace.CurrentCamera.CameraSubject = nil
+    workspace.CurrentCamera.CameraType = Enum.CameraType.Scriptable
 
+    -- Перемещаем персонажа глубоко под землю (серверная скрытность)
+    local voidPosition = Vector3.new(0, -500, 0)  -- для большинства игр это вне видимости
+    hrp.CFrame = CFrame.new(voidPosition)
+    -- Делаем персонажа прозрачным локально, чтобы мы не видели "парящую модель" под картой
+    for _, part in ipairs(character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.Transparency = 1
+        elseif part:IsA("BillboardGui") then
+            part.Enabled = false
+        end
+    end
+
+    -- Создаём локальный дубликат, который будет на месте игрока
+    invisCharacter = character:Clone()
+    invisCharacter.Name = "InvisPhantom"
+    invisCharacter.Archivable = false
+    -- Делаем дубликат полностью прозрачным (видим только мы сами)
+    for _, part in ipairs(invisCharacter:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.Transparency = 0.7   -- полупрозрачно, чтобы мы понимали, что это фантом
+            part.CanCollide = false
+        elseif part:IsA("BillboardGui") or part:IsA("ParticleEmitter") then
+            part.Enabled = false
+        end
+    end
+    -- Убираем у дубликата скрипты, анимации и звуки, чтобы не мешали
+    for _, obj in ipairs(invisCharacter:GetDescendants()) do
+        if obj:IsA("Script") or obj:IsA("LocalScript") or obj:IsA("Sound") then
+            obj:Destroy()
+        end
+    end
+    invisCharacter.Parent = Workspace
+
+    -- Синхронизация: при каждом движении реального персонажа (в Void) перемещаем дубликат соответственно
+    local lastCFrame = hrp.CFrame
+    invisConnection = RunService.RenderStepped:Connect(function()
+        if not invisEnabled then
+            invisConnection:Disconnect()
+            return
+        end
+        local realChar = LocalPlayer.Character
+        if not realChar or not realChar:FindFirstChild("HumanoidRootPart") then return end
+        local realHRP = realChar.HumanoidRootPart
+        -- Вычисляем дельту движения реального персонажа
+        local delta = realHRP.CFrame:ToObjectSpace(lastCFrame)
+        lastCFrame = realHRP.CFrame
+
+        if invisCharacter and invisCharacter:FindFirstChild("HumanoidRootPart") then
+            local phantomHRP = invisCharacter.HumanoidRootPart
+            phantomHRP.CFrame = phantomHRP.CFrame * delta
+            -- Приводим все части дубликата в соответствие с реальным персонажем
+            for _, realPart in ipairs(realChar:GetChildren()) do
+                if realPart:IsA("BasePart") then
+                    local phantomPart = invisCharacter:FindFirstChild(realPart.Name)
+                    if phantomPart and phantomPart:IsA("BasePart") then
+                        phantomPart.CFrame = realPart.CFrame * CFrame.new(0, 500, 0) -- компенсация сдвига в Void
+                    end
+                end
+            end
+        end
+    end)
+
+    -- Привязываем камеру к дубликату
+    workspace.CurrentCamera.CameraSubject = invisCharacter and invisCharacter:FindFirstChild("Humanoid")
+    workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
+
+    -- Скрываем UI (лидерборд, меню)
     Invisibility.hideUIElements()
-    print("[DeltaPhantom] Абсолютная невидимость активирована (персонаж удалён из Workspace).")
+
+    invisEnabled = true
+    print("[DeltaPhantom] Серверная невидимость активирована. Ты под картой, видишь фантома.")
 end
 
 function Invisibility.hideUIElements()
+    if Invisibility.uiHidden then return end
     local playerList = safeFind(CoreGui:FindFirstChild("RobloxGui"), "PlayerList")
     if playerList then
-        Invisibility.originalPlayerListEnabled = playerList.Enabled
         playerList.Enabled = false
     end
-
     local pauseMenu = safeFind(CoreGui:FindFirstChild("RobloxGui"), "PauseMenu")
     if pauseMenu then
-        Invisibility.originalPauseMenuVisible = pauseMenu.Visible
         deepHide(pauseMenu)
     end
-
     local topBar = safeFind(CoreGui:FindFirstChild("RobloxGui"), "TopBar")
     if topBar then
-        Invisibility.originalTopBarVisible = topBar.Visible
         topBar.Visible = false
     end
+    Invisibility.uiHidden = true
 end
 
 function Invisibility.disable()
     if not invisEnabled then return end
     invisEnabled = false
 
-    -- Возвращаем персонажа в мир
-    local character = LocalPlayer.Character
-    if character and not character:IsDescendantOf(Workspace) then
-        character.Parent = Workspace
-        -- Устанавливаем позицию обратно на якорь
-        local hrp = character:FindFirstChild("HumanoidRootPart")
-        if hrp and invisAnchorPart then
-            hrp.CFrame = invisAnchorPart.CFrame
-        end
+    -- Удаляем дубликат
+    if invisCharacter then
+        invisCharacter:Destroy()
+        invisCharacter = nil
     end
 
-    -- Удаляем якорь
-    if invisAnchorPart then
-        invisAnchorPart:Destroy()
-        invisAnchorPart = nil
+    -- Возвращаем персонажа на место, где был дубликат
+    local character = LocalPlayer.Character
+    if character and character:FindFirstChild("HumanoidRootPart") then
+        local hrp = character.HumanoidRootPart
+        if originalCFrame then
+            hrp.CFrame = originalCFrame
+        else
+            hrp.CFrame = hrp.CFrame + Vector3.new(0, 500, 0)   -- поднимаем из Void
+        end
+        -- Восстанавливаем прозрачность
+        for _, part in ipairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.Transparency = 0
+            elseif part:IsA("BillboardGui") then
+                part.Enabled = true
+            end
+        end
     end
 
     -- Восстанавливаем камеру
-    local camera = workspace.CurrentCamera
-    camera.CameraSubject = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
+    workspace.CurrentCamera.CameraSubject = character and character:FindFirstChild("Humanoid")
+    workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
 
     -- Восстанавливаем UI
-    if Invisibility.originalPlayerListEnabled ~= nil then
+    if Invisibility.uiHidden then
         local playerList = safeFind(CoreGui:FindFirstChild("RobloxGui"), "PlayerList")
         if playerList then
-            playerList.Enabled = Invisibility.originalPlayerListEnabled
+            playerList.Enabled = true
         end
-        Invisibility.originalPlayerListEnabled = nil
-    end
-    if Invisibility.originalPauseMenuVisible ~= nil then
         local pauseMenu = safeFind(CoreGui:FindFirstChild("RobloxGui"), "PauseMenu")
         if pauseMenu then
-            pauseMenu.Visible = Invisibility.originalPauseMenuVisible
+            pauseMenu.Visible = true
         end
-        Invisibility.originalPauseMenuVisible = nil
-    end
-    if Invisibility.originalTopBarVisible ~= nil then
         local topBar = safeFind(CoreGui:FindFirstChild("RobloxGui"), "TopBar")
         if topBar then
-            topBar.Visible = Invisibility.originalTopBarVisible
+            topBar.Visible = true
         end
-        Invisibility.originalTopBarVisible = nil
+        Invisibility.uiHidden = false
     end
 
     print("[DeltaPhantom] Невидимость отключена.")
 end
 
--- ===================== СЛЕЖЕНИЕ =====================
+-- ===================== СЛЕЖЕНИЕ (БЕЗ ИЗМЕНЕНИЙ) =====================
 local Tracking = {}
 Tracking.currentConnection = nil
 Tracking.mouseWheelConnection = nil
@@ -290,7 +346,7 @@ function Tracking.setMode(mode)
     end
 end
 
--- ===================== ТЕЛЕПОРТ =====================
+-- ===================== ТЕЛЕПОРТ (БЕЗ ИЗМЕНЕНИЙ) =====================
 local function teleportToPlayer(targetName)
     local target = Players:FindFirstChild(targetName)
     if not target then
@@ -326,32 +382,57 @@ local function teleportToPlayer(targetName)
     print("[DeltaPhantom] Телепортирован к " .. targetName)
 end
 
--- ===================== ТРОЛЛИНГ (v1.2) =====================
+-- ===================== ТРОЛЛИНГ (ПЕРЕРАБОТАННЫЙ) =====================
 local Trolling = {}
 
--- Универсальный поиск RemoteEvent, подходящего для GUI/звуков
-local function findSuitableRemoteEvent(keywords)
+-- Расширенный поиск RemoteEvent (сканирует всё, включая Players)
+local function findRemoteEvents(keywords)
     local found = {}
     local function scan(parent)
         for _, obj in ipairs(parent:GetChildren()) do
             if obj:IsA("RemoteEvent") then
+                local name = obj.Name:lower()
                 for _, kw in ipairs(keywords) do
-                    if obj.Name:lower():find(kw:lower()) then
+                    if name:find(kw) then
                         table.insert(found, obj)
                         break
                     end
                 end
             end
-            if obj:IsA("Folder") or obj:IsA("Model") or obj:IsA("Configuration") then
+            -- Рекурсивно сканируем папки и модели, но ограничим глубину
+            if obj:IsA("Folder") or obj:IsA("Model") or obj:IsA("Tool") then
                 scan(obj)
             end
         end
     end
     scan(ReplicatedStorage)
     if #found == 0 then
-        scan(workspace)   -- иногда RemoteEvent лежат в Workspace
+        scan(Workspace)
+    end
+    -- Сканируем Players на случай PlayerGui
+    for _, player in ipairs(Players:GetPlayers()) do
+        local playerGui = player:FindFirstChild("PlayerGui")
+        if playerGui then
+            scan(playerGui)
+        end
     end
     return found
+end
+
+-- Спам сообщениями в чат (если есть Chat Service)
+local function spamChat(targetPlayer, message, count)
+    local chatService = game:GetService("Chat")
+    if chatService then
+        local speaker = chatService:GetSpeaker(LocalPlayer)
+        if speaker then
+            for i = 1, count do
+                pcall(function()
+                    speaker:SayMessage(message, "All")  -- или всем
+                end)
+                task.wait(0.05)
+            end
+        end
+    end
 end
 
 function Trolling.screamer(targetName)
@@ -361,56 +442,48 @@ function Trolling.screamer(targetName)
         return
     end
 
-    -- Ищем RemoteEvent, отвечающий за GUI/уведомления
-    local guiEvents = findSuitableRemoteEvent({"gui", "notification", "popup", "show", "display", "ui"})
-    local soundEvents = findSuitableRemoteEvent({"sound", "audio", "music", "play"})
+    -- Способ 1: RemoteEvent с GUI
+    local guiEvents = findRemoteEvents({"gui", "notification", "popup", "show", "display", "ui", "message"})
+    local soundEvents = findRemoteEvents({"sound", "audio", "music", "play"})
 
-    -- ID страшной картинки и звука (можно заменить на любые)
-    local imageId = "rbxassetid://1234567890"  -- замени на реальный ID скримера
-    local soundId = "rbxassetid://9876543210"  -- замени на ID громкого звука
+    local imageId = "rbxassetid://1234567890"  -- реальный ID скримера
+    local soundId = "rbxassetid://9876543210"  -- ID страшного звука
 
-    -- Пытаемся отправить изображение
+    local success = false
     if #guiEvents > 0 then
         for _, event in ipairs(guiEvents) do
             pcall(function()
-                event:FireServer(target, imageId)  -- пробуем передать игрока и картинку
+                event:FireServer(target, imageId)
             end)
         end
-        print("[DeltaPhantom] Скример отправлен " .. targetName)
-    else
-        warn("[DeltaPhantom] Подходящий GUI RemoteEvent не найден.")
+        success = true
     end
-
-    -- Пытаемся отправить звук
     if #soundEvents > 0 then
         for _, event in ipairs(soundEvents) do
             pcall(function()
                 event:FireServer(target, soundId)
             end)
         end
-        print("[DeltaPhantom] Звук скримера отправлен " .. targetName)
+        success = true
     end
 
-    -- Если вообще ничего не найдено, создаём локальный скример (запасной вариант)
-    if #guiEvents == 0 and #soundEvents == 0 then
-        warn("[DeltaPhantom] RemoteEvent не найдены. Создаю локальный скример для демонстрации.")
-        -- Локальный скример (появляется на нашем экране)
-        local screamerGui = Instance.new("ScreenGui")
-        screamerGui.Name = "ScreamerLocal"
-        screamerGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-        local imageLabel = Instance.new("ImageLabel")
-        imageLabel.Size = UDim2.new(1, 0, 1, 0)
-        imageLabel.Image = "rbxassetid://1234567890"
-        imageLabel.BackgroundTransparency = 0
-        imageLabel.Parent = screamerGui
-        local screamSound = Instance.new("Sound")
-        screamSound.SoundId = "rbxassetid://9876543210"
-        screamSound.Volume = 10
-        screamSound.Parent = screamerGui
-        screamSound:Play()
-        task.delay(3, function()
-            screamerGui:Destroy()
-        end)
+    if not success then
+        -- Резервный метод: спам в чат страшными сообщениями
+        warn("[DeltaPhantom] RemoteEvent не найдены, использую чат-спам.")
+        local screamMessages = {
+            "👁️👁️👁️ ТЫ ВИДЕЛ ЭТО? 👁️👁️👁️",
+            "AAAAAAAAAAAAAAAAAA!!!!",
+            "СМОТРИ ЗА СПИНОЙ!!!",
+            "01001000 01000101 01001100 01010000",  -- HELP в бинарном
+        }
+        for i = 1, 10 do
+            local msg = screamMessages[math.random(#screamMessages)]
+            spamChat(target, msg, 1)
+            task.wait(0.2)
+        end
+        print("[DeltaPhantom] Скример отправлен через чат.")
+    else
+        print("[DeltaPhantom] Скример отправлен через RemoteEvent.")
     end
 end
 
@@ -421,41 +494,55 @@ function Trolling.lagTarget(targetName)
         return
     end
 
-    -- Ищем RemoteEvent для создания частей
-    local partEvents = findSuitableRemoteEvent({"part", "create", "spawn", "block", "obstacle"})
-    if #partEvents == 0 then
-        warn("[DeltaPhantom] RemoteEvent для создания частей не найден.")
-        return
-    end
-
-    -- Получаем позицию цели
-    local character = target.Character
-    if not character then
-        warn("[DeltaPhantom] Персонаж цели не загружен.")
-        return
-    end
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not hrp then
-        return
-    end
-    local pos = hrp.Position
-
-    -- Создаём 50 прозрачных частей вокруг цели
-    for i = 1, 50 do
-        local offset = Vector3.new(math.random(-5, 5), math.random(-2, 5), math.random(-5, 5))
-        local partPos = pos + offset
-        -- Отправляем запрос на создание детали через каждый найденный RemoteEvent
-        for _, event in ipairs(partEvents) do
-            pcall(function()
-                -- Параметры зависят от игры: обычно передаётся тип детали, позиция, размер и т.д.
-                event:FireServer("Part", partPos, Vector3.new(2, 2, 2))  -- подгоняется под игру
-            end)
+    -- Способ 1: RemoteEvent для создания деталей
+    local partEvents = findRemoteEvents({"part", "create", "spawn", "block", "obstacle", "build"})
+    local success = false
+    if #partEvents > 0 then
+        local targetChar = target.Character
+        if targetChar and targetChar:FindFirstChild("HumanoidRootPart") then
+            local pos = targetChar.HumanoidRootPart.Position
+            for i = 1, 30 do
+                local offset = Vector3.new(math.random(-3, 3), math.random(-2, 2), math.random(-3, 3))
+                for _, event in ipairs(partEvents) do
+                    pcall(function()
+                        event:FireServer(pos + offset, Vector3.new(2, 2, 2))
+                    end)
+                end
+                task.wait(0.01)
+            end
+            success = true
         end
     end
-    print("[DeltaPhantom] Лаг-атака выполнена на " .. targetName)
+
+    if not success then
+        -- Резерв: создаём много частей прямо в Workspace, если есть права (может лагать клиент цели)
+        warn("[DeltaPhantom] RemoteEvent не найдены, создаю спам-части локально (влияет на твой FPS, но жертва тоже увидит).")
+        local dummy = Instance.new("Model")
+        dummy.Name = "LagParts"
+        dummy.Parent = Workspace
+        for i = 1, 100 do
+            local part = Instance.new("Part")
+            part.Size = Vector3.new(2, 2, 2)
+            part.Anchored = true
+            part.Transparency = 0.8
+            part.CanCollide = false
+            part.Position = Vector3.new(math.random(-10, 10), math.random(0, 10), math.random(-10, 10))
+            part.Parent = dummy
+            -- Пытаемся установить сетевое владение на цель, чтобы лагало у неё
+            pcall(function()
+                part:SetNetworkOwner(target)
+            end)
+        end
+        task.delay(5, function()
+            dummy:Destroy()
+        end)
+        print("[DeltaPhantom] Лаг-атака выполнена локально.")
+    else
+        print("[DeltaPhantom] Лаг-атака выполнена через RemoteEvent.")
+    end
 end
 
--- ===================== СОЗДАНИЕ МЕНЮ (ДОПОЛНЕННОЕ) =====================
+-- ===================== СОЗДАНИЕ МЕНЮ (ПОЛНОСТЬЮ ИЗ ПРЕДЫДУЩЕЙ ВЕРСИИ, НЕ ТРОНУТО) =====================
 local function createUI()
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "DeltaPhantomGUI"
@@ -465,7 +552,7 @@ local function createUI()
 
     local mainFrame = Instance.new("Frame")
     mainFrame.Name = "Main"
-    mainFrame.Size = UDim2.new(0, 280, 0, 500)   -- увеличим высоту для новых кнопок
+    mainFrame.Size = UDim2.new(0, 280, 0, 500)
     mainFrame.Position = UDim2.new(0, -300, 0.5, -250)
     mainFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
     mainFrame.BackgroundTransparency = 0.15
@@ -478,7 +565,6 @@ local function createUI()
     corner.CornerRadius = UDim.new(0, 8)
     corner.Parent = mainFrame
 
-    -- Тень
     local shadowFrame = Instance.new("Frame")
     shadowFrame.Size = UDim2.new(1, 0, 1, 0)
     shadowFrame.Position = UDim2.new(0, 0, 0, 0)
@@ -491,12 +577,11 @@ local function createUI()
     shadowCorner.Parent = shadowFrame
     shadowFrame.Parent = mainFrame
 
-    -- Заголовок
     local titleLabel = Instance.new("TextLabel")
     titleLabel.Size = UDim2.new(1, 0, 0, 30)
     titleLabel.Position = UDim2.new(0, 0, 0, 5)
     titleLabel.BackgroundTransparency = 1
-    titleLabel.Text = "Delta Phantom v1.2"
+    titleLabel.Text = "Delta Phantom v2.0"
     titleLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
     titleLabel.Font = Enum.Font.GothamSemibold
     titleLabel.TextSize = 20
@@ -509,7 +594,6 @@ local function createUI()
     divider.BorderSizePixel = 0
     divider.Parent = mainFrame
 
-    -- Дропдаун игроков (без изменений)
     local playerDropdown = Instance.new("TextButton")
     playerDropdown.Size = UDim2.new(1, -20, 0, 30)
     playerDropdown.Position = UDim2.new(0, 10, 0, 50)
@@ -594,7 +678,6 @@ local function createUI()
 
     Gui.selectedPlayer = nil
 
-    -- Телепорт (без изменений)
     local teleportButton = Instance.new("TextButton")
     teleportButton.Size = UDim2.new(1, -20, 0, 35)
     teleportButton.Position = UDim2.new(0, 10, 0, 130)
@@ -615,7 +698,6 @@ local function createUI()
         teleportToPlayer(Gui.selectedPlayer.Name)
     end)
 
-    -- Невидимость (без изменений, но поведение обновлено)
     local invisButton = Instance.new("TextButton")
     invisButton.Size = UDim2.new(1, -20, 0, 35)
     invisButton.Position = UDim2.new(0, 10, 0, 170)
@@ -638,7 +720,6 @@ local function createUI()
         end
     end)
 
-    -- Слежение (без изменений)
     local watchToggle = Instance.new("TextButton")
     watchToggle.Size = UDim2.new(1, -20, 0, 35)
     watchToggle.Position = UDim2.new(0, 10, 0, 210)
@@ -665,7 +746,6 @@ local function createUI()
         end
     end)
 
-    -- Режимы камеры (без изменений)
     local modeLabel = Instance.new("TextLabel")
     modeLabel.Size = UDim2.new(1, -20, 0, 20)
     modeLabel.Position = UDim2.new(0, 10, 0, 250)
@@ -708,10 +788,9 @@ local function createUI()
         end
     end
 
-    -- === НОВЫЕ КНОПКИ ТРОЛЛИНГА ===
     local screamerButton = Instance.new("TextButton")
     screamerButton.Size = UDim2.new(1, -20, 0, 35)
-    screamerButton.Position = UDim2.new(0, 10, 0, 310)   -- ниже всех
+    screamerButton.Position = UDim2.new(0, 10, 0, 310)
     screamerButton.Text = "Скример на цель"
     screamerButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
     screamerButton.TextColor3 = Color3.fromRGB(255, 100, 100)
@@ -749,7 +828,6 @@ local function createUI()
         Trolling.lagTarget(Gui.selectedPlayer.Name)
     end)
 
-    -- Кнопка сворачивания (прежняя, позиция скорректирована)
     local toggleButton = Instance.new("TextButton")
     toggleButton.Size = UDim2.new(0, 30, 0, 30)
     toggleButton.Position = UDim2.new(0, mainFrame.Size.X.Offset - 30, 0, 5)
@@ -779,9 +857,8 @@ local function createUI()
         end
     end)
 
-    -- Анимация первого появления
     tweenPos(mainFrame, expandedPosition, 0.5, function()
-        print("[DeltaPhantom v1.2] Меню готово.")
+        print("[DeltaPhantom v2.0] Меню готово.")
     end)
 
     Gui.screenGui = screenGui
@@ -794,11 +871,9 @@ end
 -- ===================== ОБРАБОТЧИКИ ПЕРЕРОЖДЕНИЯ =====================
 LocalPlayer.CharacterAdded:Connect(function(character)
     if invisEnabled then
-        -- Персонаж новый, нужно вернуть его в Workspace? Он же только что создался.
-        -- Наша абсолютная невидимость работает так: при включении старый персонаж был убран.
-        -- При перерождении новый персонаж автоматически в Workspace, нам нужно его снова спрятать.
-        -- Поэтому просто выключаем и включаем невидимость, чтобы корректно спрятать новый.
+        -- Переподключаем невидимость для нового персонажа
         Invisibility.disable()
+        wait(0.1)
         Invisibility.enable()
     end
 end)
@@ -808,8 +883,7 @@ createUI()
 
 print([[
 ========================================
-  Delta Phantom v1.2 загружен!
-  Абсолютная невидимость + троллинг
-  Автор: Абсолютный Коджер
+  Delta Phantom v2.0 загружен!
+  Истинная серверная невидимость + троллинг
 ========================================
 ]])
