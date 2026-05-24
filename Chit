@@ -1,8 +1,9 @@
--- ЧАСТЬ 1/3: GHOST ULTRA v7.1 – ЯДРО И МЕНЮ
+-- ЧАСТЬ 1/3: GHOST ULTRA v7.3 – ЯДРО, АНТИДЕТЕКТ, СОЗДАНИЕ МЕНЮ И ВКЛАДОК
 if getgenv().__GHOST_ULTRA_LOADED then return end
 getgenv().__GHOST_ULTRA_LOADED = true
 
-local Ghost = { Name = "GhostUltra", Version = "7.1", Settings = { Menu = { X = 100, Y = 100, Collapsed = false, AnimSpeed = 0.25 }, Features = { Shadow = false, Spectate = false, ChatSpy = false } }, SelectedTarget = nil, CamMode = 2 }
+local Ghost = { Name = "GhostUltra", Version = "7.3", Settings = { Menu = { X = 100, Y = 100, Collapsed = false, AnimSpeed = 0.25 }, Features = { Shadow = false, Spectate = false, ChatSpy = false } } }
+
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
@@ -15,8 +16,8 @@ local Lighting = game:GetService("Lighting")
 
 local function hide_executor_traces()
     local g = getgenv()
-    local d = { "syn", "krnl", "scriptware", "delta", "protosmasher", "unc", "identifyexecutor", "getexecutorname", "isexecutor", "check" }
-    for _, n in ipairs(d) do if g[n] then g[n] = nil end end
+    local dangerous = { "syn", "krnl", "scriptware", "delta", "protosmasher", "unc", "identifyexecutor", "getexecutorname", "isexecutor", "check" }
+    for _, n in ipairs(dangerous) do if g[n] then g[n] = nil end end
     local mt = getrawmetatable(game)
     if mt then
         local old_nc = mt.__namecall
@@ -172,7 +173,7 @@ screen_gui.Parent = CoreGui
 if protect_gui then protect_gui(screen_gui) elseif syn and syn.protect_gui then syn.protect_gui(screen_gui) end
 
 local main_frame = Instance.new("Frame")
-main_frame.Size = UDim2.new(0, 420, 0, 580)
+main_frame.Size = UDim2.new(0, 440, 0, 600)
 main_frame.Position = UDim2.new(0, Ghost.Settings.Menu.X, 0, Ghost.Settings.Menu.Y)
 main_frame.BackgroundColor3 = Color3.fromRGB(18, 18, 28)
 main_frame.BackgroundTransparency = 0.05
@@ -193,7 +194,7 @@ local title_text = Instance.new("TextLabel")
 title_text.Size = UDim2.new(1, -60, 1, 0)
 title_text.Position = UDim2.new(0, 16, 0, 0)
 title_text.BackgroundTransparency = 1
-title_text.Text = "GHOST ULTRA v7.1"
+title_text.Text = "GHOST ULTRA v7.3"
 title_text.TextColor3 = Color3.fromRGB(230, 230, 255)
 title_text.TextXAlignment = Enum.TextXAlignment.Left
 title_text.Font = Enum.Font.GothamBold
@@ -226,7 +227,7 @@ content_scroll.Size = UDim2.new(1, 0, 1, -44)
 content_scroll.Position = UDim2.new(0, 0, 0, 44)
 content_scroll.BackgroundTransparency = 1
 content_scroll.BorderSizePixel = 0
-content_scroll.CanvasSize = UDim2.new(0, 0, 0, 950)
+content_scroll.CanvasSize = UDim2.new(0, 0, 0, 1000)
 content_scroll.ScrollBarThickness = 6
 content_scroll.ScrollBarImageColor3 = Color3.fromRGB(80, 80, 100)
 content_scroll.Parent = content_container
@@ -267,10 +268,10 @@ for i, tn in ipairs(tabs) do
 
     if tn == "CORE" then
         local lbl = Instance.new("TextLabel")
-        lbl.Size = UDim2.new(1, -20, 0, 160)
+        lbl.Size = UDim2.new(1, -20, 0, 180)
         lbl.Position = UDim2.new(0, 10, 0, 10)
         lbl.BackgroundTransparency = 1
-        lbl.Text = "GHOST ULTRA v7.1 by Absolute Codger\n\n✅ Антидетект активен\n✅ Меню загружено\n\n📌 ИНСТРУКЦИЯ:\n1. Вкладка SHADOW → включи невидимость\n2. Вкладка CAMERA → выбери игрока → включи камеру → меняй виды\n3. Телепорт: выбери игрока и нажми кнопку\n4. Чат-спай: включи, сообщения в консоль (F9)\n\n⚡ Все функции включаются/выключаются вторым нажатием"
+        lbl.Text = "GHOST ULTRA v7.3 by Absolute Codger\n\n✅ Антидетект активен\n✅ Меню загружено\n\n📌 ИНСТРУКЦИЯ:\n1. Вкладка SHADOW → включи невидимость\n2. Вкладка CAMERA → выбери игрока → включи камеру → меняй виды\n3. Телепорт: выбери игрока и нажми кнопку\n4. Чат-спай: включи, сообщения в консоль (F9)\n\n⚡ Все функции включаются/выключаются вторым нажатием"
         lbl.TextColor3 = Color3.fromRGB(200, 200, 220)
         lbl.TextWrapped = true
         lbl.TextXAlignment = Enum.TextXAlignment.Center
@@ -279,10 +280,10 @@ for i, tn in ipairs(tabs) do
         lbl.Parent = panel
     elseif tn == "INFO" then
         local cr = Instance.new("TextLabel")
-        cr.Size = UDim2.new(1, -20, 0, 280)
+        cr.Size = UDim2.new(1, -20, 0, 300)
         cr.Position = UDim2.new(0, 10, 0, 10)
         cr.BackgroundTransparency = 1
-        cr.Text = "Создатель: Абсолютный Коджер\nTG: @cherdak_coolera\n\nОСОБЕННОСТИ:\n• Невидимость: полное исчезновение из списка игроков,\n  прозрачность всех частей тела, отключение коллизий,\n  удаление аксессуаров, остановка анимаций.\n  Ты двигаешься, сервер тебя не видит.\n\n• Камера игрока: выбор цели, переключение видов:\n  1-е лицо, 3-е лицо сзади, дальний вид.\n  Плавное следование.\n\n• Телепорт: к выбранному игроку или по координатам.\n\n• Чат-спай: перехват всех сообщений, вывод в консоль (F9).\n\nСкрипт протестирован в Delta Executor на Bluestacks."
+        cr.Text = "Создатель: Абсолютный Коджер\nTG: @cherdak_coolera\n\nОСОБЕННОСТИ:\n• Невидимость: полное исчезновение из списка игроков,\n  прозрачность всех частей тела, отключение коллизий,\n  удаление аксессуаров, остановка анимаций.\n  Ты двигаешься, сервер тебя не видит.\n\n• Камера игрока: выбор цели из списка,\n  переключение видов: 1-е лицо, 3-е лицо сзади,\n  дальний вид, супер дальний.\n  Плавное следование.\n\n• Телепорт: к выбранному игроку или по координатам.\n\n• Чат-спай: перехват всех сообщений,\n  вывод в консоль Roblox (F9).\n\nСкрипт протестирован в Delta Executor на Bluestacks.\n\nВерсия 7.3 – полная стабильная сборка."
         cr.TextColor3 = Color3.fromRGB(180, 180, 200)
         cr.TextWrapped = true
         cr.TextXAlignment = Enum.TextXAlignment.Center
@@ -293,11 +294,11 @@ for i, tn in ipairs(tabs) do
 end
 
 local collapsed_height = 42
-local expanded_height = 580
+local expanded_height = 600
 local tween_info = TweenInfo.new(Ghost.Settings.Menu.AnimSpeed, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 collapse_btn.MouseButton1Click:Connect(function()
     Ghost.Settings.Menu.Collapsed = not Ghost.Settings.Menu.Collapsed
-    local target = Ghost.Settings.Menu.Collapsed and UDim2.new(0, 420, 0, collapsed_height) or UDim2.new(0, 420, 0, expanded_height)
+    local target = Ghost.Settings.Menu.Collapsed and UDim2.new(0, 440, 0, collapsed_height) or UDim2.new(0, 440, 0, expanded_height)
     local tween = TweenService:Create(main_frame, tween_info, { Size = target })
     tween:Play()
     collapse_btn.Text = Ghost.Settings.Menu.Collapsed and "▲" or "▼"
@@ -334,17 +335,17 @@ end
 
 init_antidetect()
 switch_tab("CORE")
-getgenv().GhostCore = { Ghost = Ghost, get_panel = get_panel }
-print("[Ghost] Ядро загружено. Меню создано.")
--- ЧАСТЬ 2/3: НЕВИДИМОСТЬ И ТЕЛЕПОРТ
-local core = getgenv().GhostCore
+getgenv()._GHOST_CORE = { Ghost = Ghost, get_panel = get_panel, create_state_button = create_state_button, create_slider = create_slider, Players = Players, LocalPlayer = LocalPlayer, RunService = RunService, Workspace = Workspace, ReplicatedStorage = ReplicatedStorage }
+-- ЧАСТЬ 2/3: НЕВИДИМОСТЬ И ТЕЛЕПОРТ (ВСТАВЛЯЙ СРАЗУ ПОСЛЕ ЧАСТИ 1)
+local core = getgenv()._GHOST_CORE
 local Ghost = core.Ghost
 local get_panel = core.get_panel
-
-local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-local RunService = game:GetService("RunService")
-local Workspace = game:GetService("Workspace")
+local create_state_button = core.create_state_button
+local create_slider = core.create_slider
+local Players = core.Players
+local LocalPlayer = core.LocalPlayer
+local RunService = core.RunService
+local Workspace = core.Workspace
 
 local Shadow = {
     active = false,
@@ -549,7 +550,6 @@ function Shadow:enable()
             Shadow:applyGhost(newChar)
         end
     end)
-    print("[Shadow] Абсолютная невидимость ВКЛЮЧЕНА. Ты двигаешься, сервер не видит.")
 end
 
 function Shadow:disable()
@@ -558,7 +558,6 @@ function Shadow:disable()
     local char = LocalPlayer.Character
     if char then self:restore(char) end
     if self.charConn then self.charConn:Disconnect(); self.charConn = nil end
-    print("[Shadow] Невидимость ВЫКЛЮЧЕНА. Всё восстановлено.")
 end
 
 local Teleport = {}
@@ -757,21 +756,44 @@ if cameraPanel then
     end)
 end
 
+local settingsPanel = get_panel("SETTINGS")
+if settingsPanel then
+    for _, c in pairs(settingsPanel:GetChildren()) do c:Destroy() end
+    local y = 10
+    local animSlider = create_slider(settingsPanel, "Скорость анимации меню", 0.1, 0.8, Ghost.Settings.Menu.AnimSpeed, function(v)
+        Ghost.Settings.Menu.AnimSpeed = v
+    end)
+    animSlider.Position = UDim2.new(0, 10, 0, y)
+    y = y + 70
+    local reloadBtn = Instance.new("TextButton")
+    reloadBtn.Size = UDim2.new(1, -20, 0, 44)
+    reloadBtn.Position = UDim2.new(0, 10, 0, y)
+    reloadBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+    reloadBtn.Text = "ПЕРЕЗАПУСТИТЬ АНТИДЕТЕКТ"
+    reloadBtn.TextColor3 = Color3.new(1, 1, 1)
+    reloadBtn.Font = Enum.Font.GothamBold
+    reloadBtn.TextSize = 13
+    reloadBtn.Parent = settingsPanel
+    reloadBtn.MouseButton1Click:Connect(function()
+        init_antidetect()
+    end)
+end
+
 Ghost.Shadow = Shadow
 Ghost.Teleport = Teleport
-print("[Ghost] Часть 2 загружена: невидимость и телепорт готовы.")
--- ЧАСТЬ 3/3: КАМЕРА ИГРОКА И ЧАТ-СПАЙ
-local core = getgenv().GhostCore
+-- ЧАСТЬ 3/3: КАМЕРА ИГРОКА, ЧАТ-СПАЙ, НАСТРОЙКИ (ВСТАВЛЯЙ ПОСЛЕ ЧАСТИ 2)
+local core = getgenv()._GHOST_CORE
 local Ghost = core.Ghost
 local get_panel = core.get_panel
+local create_state_button = core.create_state_button
+local create_slider = core.create_slider
+local Players = core.Players
+local LocalPlayer = core.LocalPlayer
+local RunService = core.RunService
+local Workspace = core.Workspace
+local ReplicatedStorage = core.ReplicatedStorage
 
-local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-local RunService = game:GetService("RunService")
-local Workspace = game:GetService("Workspace")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
-local ChatSpy = { active = false, conns = {} }
+local ChatSpy = { active = false, conns = {}, oldFire = nil, remote = nil }
 
 function ChatSpy:enable()
     if self.active then return end
@@ -779,13 +801,14 @@ function ChatSpy:enable()
     local rep = ReplicatedStorage
     local remote = rep:FindFirstChild("DefaultChatSystemChatEvents") or rep:FindFirstChild("SayMessageRequest") or rep:FindFirstChild("Chatted")
     if remote and remote:IsA("RemoteEvent") then
+        self.remote = remote
         self.oldFire = remote.FireServer
         remote.FireServer = function(...)
             local args = { ... }
             if #args >= 1 and type(args[1]) == "string" then
                 print("[CHAT SENT] " .. LocalPlayer.Name .. ": " .. args[1])
             end
-            return self.oldFire(...)
+            if self.oldFire then return self.oldFire(...) end
         end
     end
     local onMsg = rep:FindFirstChild("OnChatMessage")
@@ -796,14 +819,19 @@ function ChatSpy:enable()
             end
         end))
     end
-    local txt = game:GetService("TextChatService")
-    if txt then
-        for _, ch in pairs(txt.TextChannels:GetChildren()) do
-            table.insert(self.conns, ch.OnMessageReceived:Connect(function(m)
-                if self.active and m.FromSpeaker ~= LocalPlayer then
-                    print("[CHAT] " .. m.FromSpeaker.Name .. ": " .. m.Text)
+    local txtChat = game:GetService("TextChatService")
+    if txtChat then
+        local channels = txtChat:FindFirstChild("TextChannels")
+        if channels then
+            for _, ch in pairs(channels:GetChildren()) do
+                if ch:IsA("TextChannel") then
+                    table.insert(self.conns, ch.OnMessageReceived:Connect(function(m)
+                        if self.active and m.FromSpeaker ~= LocalPlayer then
+                            print("[CHAT] " .. m.FromSpeaker.Name .. ": " .. m.Text)
+                        end
+                    end))
                 end
-            end))
+            end
         end
     end
     print("[ChatSpy] Включён. Все сообщения в консоль (F9).")
@@ -812,9 +840,15 @@ end
 function ChatSpy:disable()
     if not self.active then return end
     self.active = false
-    for _, c in ipairs(self.conns) do c:Disconnect() end
+    for _, c in ipairs(self.conns) do
+        c:Disconnect()
+    end
     self.conns = {}
-    if self.oldFire and self.remote then self.remote.FireServer = self.oldFire end
+    if self.remote and self.oldFire then
+        self.remote.FireServer = self.oldFire
+        self.oldFire = nil
+        self.remote = nil
+    end
     print("[ChatSpy] Выключен.")
 end
 
@@ -836,7 +870,9 @@ local Spectate = {
 function Spectate:getPlayers()
     local list = {}
     for _, v in ipairs(Players:GetPlayers()) do
-        if v ~= LocalPlayer then table.insert(list, v) end
+        if v ~= LocalPlayer then
+            table.insert(list, v)
+        end
     end
     return list
 end
@@ -855,15 +891,16 @@ function Spectate:setTarget(pl)
             return
         end
         local root = self.target.Character:FindFirstChild("HumanoidRootPart")
-        if root then
-            local mode = self.modes[self.viewMode]
-            if mode.firstPerson then
-                local head = self.target.Character:FindFirstChild("Head")
-                local cf = head and head.CFrame or root.CFrame
-                workspace.CurrentCamera.CFrame = cf + mode.offset
-            else
-                workspace.CurrentCamera.CFrame = CFrame.new(root.CFrame.Position + mode.offset, root.CFrame.Position)
-            end
+        if not root then return end
+        local mode = self.modes[self.viewMode]
+        if mode.firstPerson then
+            local head = self.target.Character:FindFirstChild("Head")
+            local cf = head and head.CFrame or root.CFrame
+            workspace.CurrentCamera.CFrame = cf + mode.offset
+        else
+            local targetPos = root.CFrame.Position
+            local offsetPos = targetPos + mode.offset
+            workspace.CurrentCamera.CFrame = CFrame.new(offsetPos, targetPos)
         end
     end)
     return true
@@ -874,7 +911,10 @@ function Spectate:enable(pl)
     local target = pl
     if not target then
         local players = self:getPlayers()
-        if #players == 0 then warn("Нет других игроков"); return end
+        if #players == 0 then
+            warn("[Spectate] Нет других игроков для наблюдения")
+            return
+        end
         target = players[1]
     end
     if self:setTarget(target) then
@@ -886,7 +926,10 @@ end
 function Spectate:disable()
     if not self.active then return end
     self.active = false
-    if self.conn then self.conn:Disconnect(); self.conn = nil end
+    if self.conn then
+        self.conn:Disconnect()
+        self.conn = nil
+    end
     local cam = workspace.CurrentCamera
     cam.CameraType = self.origCamType or Enum.CameraType.Custom
     cam.CameraSubject = self.origCamSubj or LocalPlayer.Character
@@ -895,18 +938,29 @@ function Spectate:disable()
 end
 
 function Spectate:nextPlayer()
-    if not self.active then warn("Сначала включи камеру"); return end
+    if not self.active then
+        warn("[Spectate] Сначала включи камеру")
+        return
+    end
     local players = self:getPlayers()
-    if #players == 0 then self:disable(); return end
+    if #players == 0 then
+        self:disable()
+        return
+    end
     local idx = 1
-    for i, p in ipairs(players) do if p == self.target then idx = i + 1; break end end
+    for i, p in ipairs(players) do
+        if p == self.target then idx = i + 1; break end
+    end
     if idx > #players then idx = 1 end
     self:setTarget(players[idx])
     print("[Spectate] Теперь наблюдение за " .. self.target.Name)
 end
 
 function Spectate:cycleView()
-    if not self.active then warn("Сначала включи камеру"); return end
+    if not self.active then
+        warn("[Spectate] Сначала включи камеру")
+        return
+    end
     self.viewMode = self.viewMode % #self.modes + 1
     print("[Spectate] Вид сменён на: " .. self.modes[self.viewMode].name)
 end
@@ -979,16 +1033,17 @@ if cameraPanel then
     targetDropdown.MouseButton1Click:Connect(function()
         if targetList.Visible then targetList.Visible = false else updateTargetList(); targetList.Visible = true end
     end)
+    y = y + 180
     local camControl = Instance.new("Frame")
     camControl.Size = UDim2.new(1, -20, 0, 180)
-    camControl.Position = UDim2.new(0, 10, 0, y + 180)
+    camControl.Position = UDim2.new(0, 10, 0, y)
     camControl.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
     camControl.BackgroundTransparency = 0.2
     camControl.Parent = cameraPanel
     local cornerCc = Instance.new("UICorner")
     cornerCc.CornerRadius = UDim.new(0, 10)
     cornerCc.Parent = camControl
-    local enableBtn = create_state_button(camControl, "Включить камеру игрока", false, function(s)
+    local enableCam = create_state_button(camControl, "Включить камеру игрока", false, function(s)
         if s then
             if selectedTarget then
                 Spectate:enable(selectedTarget)
@@ -999,7 +1054,7 @@ if cameraPanel then
                     selectedTarget = players[1]
                     targetDropdown.Text = players[1].Name
                 else
-                    warn("Нет игроков")
+                    warn("[Camera] Нет игроков для наблюдения")
                     return
                 end
             end
@@ -1008,7 +1063,7 @@ if cameraPanel then
         end
         Ghost.Settings.Features.Spectate = s
     end)
-    enableBtn.Position = UDim2.new(0, 10, 0, 10)
+    enableCam.Position = UDim2.new(0, 10, 0, 10)
     local nextBtn = Instance.new("TextButton")
     nextBtn.Size = UDim2.new(1, -20, 0, 40)
     nextBtn.Position = UDim2.new(0, 10, 0, 65)
@@ -1026,7 +1081,7 @@ if cameraPanel then
                 targetDropdown.Text = selectedTarget.Name
             end
         else
-            warn("Сначала включи камеру")
+            warn("[Camera] Сначала включи камеру")
         end
     end)
     local cycleBtn = Instance.new("TextButton")
@@ -1039,11 +1094,16 @@ if cameraPanel then
     cycleBtn.TextSize = 14
     cycleBtn.Parent = camControl
     cycleBtn.MouseButton1Click:Connect(function()
-        if Spectate.active then Spectate:cycleView() else warn("Сначала включи камеру") end
+        if Spectate.active then
+            Spectate:cycleView()
+        else
+            warn("[Camera] Сначала включи камеру")
+        end
     end)
+    y = y + 200
     local chatFrame = Instance.new("Frame")
-    chatFrame.Size = UDim2.new(1, -20, 0, 120)
-    chatFrame.Position = UDim2.new(0, 10, 0, y + 380)
+    chatFrame.Size = UDim2.new(1, -20, 0, 130)
+    chatFrame.Position = UDim2.new(0, 10, 0, y)
     chatFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
     chatFrame.BackgroundTransparency = 0.2
     chatFrame.Parent = cameraPanel
@@ -1059,13 +1119,13 @@ if cameraPanel then
     chatLabel.Font = Enum.Font.GothamBold
     chatLabel.TextSize = 13
     chatLabel.Parent = chatFrame
-    local chatSpyBtn = create_state_button(chatFrame, "Chat Spy", false, function(s)
+    local chatSpyBtn = create_state_button(chatFrame, "Chat Spy (просмотр чата)", false, function(s)
         if s then ChatSpy:enable() else ChatSpy:disable() end
         Ghost.Settings.Features.ChatSpy = s
     end)
     chatSpyBtn.Position = UDim2.new(0, 10, 0, 45)
     local chatInfo = Instance.new("TextLabel")
-    chatInfo.Size = UDim2.new(1, -10, 0, 40)
+    chatInfo.Size = UDim2.new(1, -10, 0, 50)
     chatInfo.Position = UDim2.new(0, 5, 0, 95)
     chatInfo.BackgroundTransparency = 1
     chatInfo.Text = "Сообщения выводятся в консоль Roblox\nНажми F9, чтобы открыть консоль"
@@ -1098,9 +1158,26 @@ if settingsPanel then
         init_antidetect()
         print("[Settings] Антидетект перезапущен")
     end)
+    y = y + 60
+    local statusLabel = Instance.new("TextLabel")
+    statusLabel.Size = UDim2.new(1, -20, 0, 60)
+    statusLabel.Position = UDim2.new(0, 10, 0, y)
+    statusLabel.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+    statusLabel.BackgroundTransparency = 0.3
+    statusLabel.Text = "СТАТУС: АКТИВЕН\nВерсия 7.3\nDelta Executor"
+    statusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+    statusLabel.TextWrapped = true
+    statusLabel.Font = Enum.Font.Gotham
+    statusLabel.TextSize = 12
+    statusLabel.Parent = settingsPanel
 end
 
 Ghost.ChatSpy = ChatSpy
 Ghost.Spectate = Spectate
-print("[Ghost] Часть 3 загружена: камера игрока и чат-спай готовы.")
-print("[Ghost] ПОЛНАЯ ЗАГРУЗКА ЗАВЕРШЕНА. МЕНЮ РАБОТАЕТ.")
+
+print("[Ghost] ЧАСТЬ 3 загружена: камера игрока и чат-спай готовы.")
+print("[Ghost] ============================================")
+print("[Ghost] ПОЛНАЯ ЗАГРУЗКА ЗАВЕРШЕНА! МЕНЮ ПОЛНОСТЬЮ РАБОТАЕТ.")
+print("[Ghost] ВКЛАДКИ: SHADOW (невидимость+телепорт), CAMERA (камера+чат)")
+print("[Ghost] Наслаждайся, смертный. Абсолютный Коджер сделал своё дело.")
+print("[Ghost] ============================================")
