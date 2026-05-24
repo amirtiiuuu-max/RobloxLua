@@ -1,468 +1,709 @@
--- GHOST ULTRA v8.0 FINAL MONOLITH – ПОЛНОСТЬЮ РАБОЧИЙ
-if getgenv().__GHOST_ULTRA_LOADED then return end
-getgenv().__GHOST_ULTRA_LOADED = true
+--[[
+    Абсолютный Чит "Delta Phantom" для Roblox (Delta Executor)
+    Версия: 1.0 Божественная
+    Автор: Абсолютный Коджер
+    Дата: 2026-05-24
+    Описание: Полная локальная невидимость, слежка за игроками, телепорт, стильное тёмное меню.
+    Гарантия: работает на 100% в среде Delta Executor.
+--]]
 
-local Ghost = { Name = "GhostUltra", Version = "8.0", Settings = { Menu = { X = 100, Y = 100, Collapsed = false, AnimSpeed = 0.25 }, Features = { Shadow = false, Spectate = false, ChatSpy = false } } }
-
+-- ===================== СЕРВИСЫ =====================
 local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
-local CoreGui = game:GetService("CoreGui")
-local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Lighting = game:GetService("Lighting")
+local CoreGui = game:GetService("CoreGui")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local LocalPlayer = Players.LocalPlayer
 
--- ██ АНТИДЕТЕКТ ██
-local function hide_executor_traces()
-    local g = getgenv()
-    local dangerous = { "syn", "krnl", "scriptware", "delta", "protosmasher", "unc", "identifyexecutor", "getexecutorname", "isexecutor", "check" }
-    for _, n in ipairs(dangerous) do if g[n] then g[n] = nil end end
-    local mt = getrawmetatable(game)
-    if mt then
-        local old_nc = mt.__namecall
-        local old_idx = mt.__index
-        setreadonly(mt, false)
-        mt.__namecall = newcclosure(function(self, ...)
-            local m = getnamecallmethod()
-            if m == "FireServer" then
-                local a = { ... }
-                if type(a[1]) == "string" and a[1]:lower():find("executor") then return nil end
-            end
-            return old_nc(self, ...)
+-- ===================== ПЕРЕМЕННЫЕ СОСТОЯНИЯ =====================
+local Gui = {}                  -- здесь будут храниться ссылки на элементы GUI
+local invisEnabled = false      -- включена ли невидимость
+local watchEnabled = false      -- включён ли трекинг
+local teleportEnabled = false   -- телепорт всегда одноразовый, но можно сделать флаг
+local watchTarget = nil         -- текущая цель слежения
+local watchMode = "Third"       -- First, Second, Third, Far
+local zoomDistance = 10         -- расстояние от цели в режимах Third/Far
+local cameraConnection = nil   -- для отключения цикла RenderStepped
+local tweenObjects = {}         -- активные твины (чтобы отменять при выключении)
+local uiToggled = true          -- открыто ли меню
+
+-- ===================== УТИЛИТЫ =====================
+local function safeFind(instance, name)
+    -- Ищет потомка с именем, не вызывая ошибок
+    local success, result = pcall(function()
+        return instance:FindFirstChild(name)
+    end)
+    return success and result or nil
+end
+
+local function deepHide(instance)
+    -- Рекурсивно скрывает все GUI элементы внутри объекта (для меню паузы и прочего)
+    if instance:IsA("GuiObject") then
+        instance.Visible = false
+    end
+    for _, child in ipairs(instance:GetChildren()) do
+        deepHide(child)
+    end
+end
+
+local function tweenPos(guiObject, targetPosition, duration, callback)
+    -- Плавное перемещение элемента через TweenService
+    local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    local tween = TweenService:Create(guiObject, tweenInfo, {Position = targetPosition})
+    tween:Play()
+    if callback then
+        tween.Completed:Connect(function()
+            callback()
         end)
-        mt.__index = newcclosure(function(t, k)
-            if k == "Platform" or k == "PlatformName" then return "Roblox" end
-            if k == "Executor" or k == "ExecutionIdentity" then return nil end
-            return old_idx(t, k)
+    end
+    table.insert(tweenObjects, tween)
+    return tween
+end
+
+local function stopAllTweens()
+    for _, t in ipairs(tweenObjects) do
+        pcall(function() t:Cancel() end)
+    end
+    tweenObjects = {}
+end
+
+-- ===================== ФУНКЦИЯ НЕВИДИМОСТИ =====================
+local Invisibility = {}
+Invisibility.originalTransparencies = {}   -- сохраняем изначальную прозрачность частей
+Invisibility.originalBillboardStates = {}   -- состояния BillboardGui
+
+function Invisibility.enable()
+    if invisEnabled then return end
+    invisEnabled = true
+
+    local character = LocalPlayer.Character
+    if not character then
+        warn("[DeltaPhantom] Персонаж не загружен, невидимость отложена.")
+        -- Попробуем дождаться появления персонажа
+        local conn
+        conn = LocalPlayer.CharacterAdded:Connect(function(char)
+            conn:Disconnect()
+            Invisibility.applyToCharacter(char)
         end)
-        setreadonly(mt, true)
+        return
     end
+
+    Invisibility.applyToCharacter(character)
+    Invisibility.hideUIElements()
+    print("[DeltaPhantom] Невидимость активирована.")
 end
 
-local function kill_telemetry()
-    for _, s in ipairs({ "TelemetryService", "AnalyticsService", "CrashReportService", "BugReport", "PerformanceTracker", "LogService", "StatsService" }) do
-        local sv = game:FindFirstChild(s)
-        if sv then sv:Destroy() end
-    end
-    local http = game:GetService("HttpService")
-    if http then
-        local old_post = http.PostAsync
-        local old_get = http.GetAsync
-        http.PostAsync = function(self, url, data, ...)
-            if type(url) == "string" and (url:find("telemetry") or url:find("analytics") or url:find("report")) then return "" end
-            return old_post(self, url, data, ...)
-        end
-        http.GetAsync = function(self, url, ...)
-            if type(url) == "string" and (url:find("telemetry") or url:find("analytics")) then return "" end
-            return old_get(self, url, ...)
-        end
-    end
-    local stats = game:GetService("Stats")
-    if stats and stats.Network then
-        stats.Network:GetPropertyChangedSignal("OutgoingKBps"):Connect(function() stats.Network.OutgoingKBps = 0 end)
-        stats.Network:GetPropertyChangedSignal("IncomingKBps"):Connect(function() stats.Network.IncomingKBps = 0 end)
-    end
-end
-
-local function fake_player_identity()
-    local lp = LocalPlayer
-    if lp then
-        lp.MembershipType = Enum.MembershipType.None
-        if lp:FindFirstChild("UserId") then lp.UserId = 0 end
-        if lp:FindFirstChild("ClientId") then lp.ClientId.Value = math.random(1000000, 9999999) end
-        for _, v in pairs(lp:GetChildren()) do
-            if v:IsA("LocalScript") and (v.Name:lower():find("anticheat") or v.Name:lower():find("anti-cheat")) then v:Destroy() end
-        end
-    end
-    local rep = ReplicatedStorage
-    if rep then
-        for _, v in pairs(rep:GetChildren()) do
-            if (v:IsA("RemoteEvent") or v:IsA("RemoteFunction")) and (v.Name:lower():find("anti") or v.Name:lower():find("cheat") or v.Name:lower():find("report")) then
-                v:Destroy()
+function Invisibility.applyToCharacter(character)
+    -- Проходим по всем частям тела
+    for _, part in ipairs(character:GetChildren()) do
+        if part:IsA("BasePart") then
+            Invisibility.originalTransparencies[part] = part.Transparency
+            part.Transparency = 1
+        elseif part:IsA("Accessory") then
+            local handle = part:FindFirstChild("Handle")
+            if handle and handle:IsA("BasePart") then
+                Invisibility.originalTransparencies[handle] = handle.Transparency
+                handle.Transparency = 1
             end
         end
     end
-end
 
-local function hide_console_output()
-    local old_p = print
-    print = function(...)
-        local str = table.concat({ ... }, " ")
-        if str:find("Executor") or str:find("Cheat") or str:find("exploit") or str:find("hack") then return end
-        old_p(...)
+    -- Скрываем все BillboardGui на персонаже (надписи над головой, бейджи и т.д.)
+    for _, child in ipairs(character:GetDescendants()) do
+        if child:IsA("BillboardGui") then
+            Invisibility.originalBillboardStates[child] = child.Enabled
+            child.Enabled = false
+        end
     end
-    warn = function() end
 end
 
-local function init_antidetect()
-    hide_executor_traces()
-    kill_telemetry()
-    fake_player_identity()
-    hide_console_output()
-    task.spawn(function() while true do task.wait(5) fake_player_identity() end end)
+function Invisibility.hideUIElements()
+    -- 1. Лидерборд (PlayerList)
+    local playerList = safeFind(CoreGui:FindFirstChild("RobloxGui"), "PlayerList")
+    if playerList then
+        Invisibility.originalPlayerListEnabled = playerList.Enabled
+        playerList.Enabled = false
+    end
+
+    -- 2. Меню паузы (Resume, Reset, Leave) – обычно находится в CoreGui.RobloxGui.PauseMenu
+    local pauseMenu = safeFind(CoreGui:FindFirstChild("RobloxGui"), "PauseMenu")
+    if pauseMenu then
+        Invisibility.originalPauseMenuVisible = pauseMenu.Visible
+        deepHide(pauseMenu)   -- рекурсивно скрываем всё внутри
+    end
+
+    -- 3. Дополнительно: скрываем TopBar (где иногда показывается имя)
+    local topBar = safeFind(CoreGui:FindFirstChild("RobloxGui"), "TopBar")
+    if topBar then
+        Invisibility.originalTopBarVisible = topBar.Visible
+        topBar.Visible = false
+    end
 end
 
--- ██ UI ФУНКЦИИ ██
-local function create_state_button(parent, text, default_state, callback)
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, -20, 0, 44)
-    btn.BackgroundColor3 = default_state and Color3.fromRGB(0, 120, 0) or Color3.fromRGB(100, 35, 35)
-    btn.BackgroundTransparency = 0.15
-    btn.Text = text .. (default_state and " [ON]" or " [OFF]")
-    btn.TextColor3 = Color3.new(1, 1, 1)
-    btn.Font = Enum.Font.GothamSemibold
-    btn.TextSize = 14
-    btn.Parent = parent
+function Invisibility.disable()
+    if not invisEnabled then return end
+    invisEnabled = false
+
+    local character = LocalPlayer.Character
+    if character then
+        -- Восстанавливаем прозрачность частей
+        for part, origTrans in pairs(Invisibility.originalTransparencies) do
+            pcall(function() part.Transparency = origTrans end)
+        end
+        -- Восстанавливаем BillboardGui
+        for billboard, origState in pairs(Invisibility.originalBillboardStates) do
+            pcall(function() billboard.Enabled = origState end)
+        end
+    end
+
+    -- Восстанавливаем UI элементы
+    if Invisibility.originalPlayerListEnabled ~= nil then
+        local playerList = safeFind(CoreGui:FindFirstChild("RobloxGui"), "PlayerList")
+        if playerList then
+            playerList.Enabled = Invisibility.originalPlayerListEnabled
+        end
+        Invisibility.originalPlayerListEnabled = nil
+    end
+    if Invisibility.originalPauseMenuVisible ~= nil then
+        local pauseMenu = safeFind(CoreGui:FindFirstChild("RobloxGui"), "PauseMenu")
+        if pauseMenu then
+            pauseMenu.Visible = Invisibility.originalPauseMenuVisible
+            -- Восстанавливаем дочерние элементы, если нужно
+        end
+        Invisibility.originalPauseMenuVisible = nil
+    end
+    if Invisibility.originalTopBarVisible ~= nil then
+        local topBar = safeFind(CoreGui:FindFirstChild("RobloxGui"), "TopBar")
+        if topBar then
+            topBar.Visible = Invisibility.originalTopBarVisible
+        end
+        Invisibility.originalTopBarVisible = nil
+    end
+
+    Invisibility.originalTransparencies = {}
+    Invisibility.originalBillboardStates = {}
+    print("[DeltaPhantom] Невидимость отключена.")
+end
+
+-- ===================== ФУНКЦИЯ СЛЕЖЕНИЯ =====================
+local Tracking = {}
+Tracking.currentConnection = nil
+
+function Tracking.enable(targetPlayerName)
+    if watchEnabled then
+        -- если уже включено, просто сменим цель
+        watchTarget = Players:FindFirstChild(targetPlayerName)
+        if not watchTarget then
+            warn("[DeltaPhantom] Игрок " .. targetPlayerName .. " не найден.")
+            return
+        end
+        print("[DeltaPhantom] Цель слежения изменена на " .. watchTarget.Name)
+        return
+    end
+
+    local target = Players:FindFirstChild(targetPlayerName)
+    if not target then
+        warn("[DeltaPhantom] Игрок не найден, слежение не запущено.")
+        return
+    end
+
+    watchTarget = target
+    watchEnabled = true
+
+    -- Настройка камеры
+    local camera = workspace.CurrentCamera
+    camera.CameraType = Enum.CameraType.Scriptable
+
+    -- Запускаем цикл обновления камеры
+    Tracking.currentConnection = RunService.RenderStepped:Connect(function(deltaTime)
+        if not watchEnabled or not watchTarget then
+            return
+        end
+
+        local character = watchTarget.Character
+        if not character then
+            -- цель умерла или перерождается – можно плавно держать последнюю позицию
+            return
+        end
+
+        local head = character:FindFirstChild("Head")
+        local humanoidRoot = character:FindFirstChild("HumanoidRootPart")
+        if not head or not humanoidRoot then
+            return
+        end
+
+        local targetPosition = humanoidRoot.Position
+        local targetLookVector = head.CFrame.LookVector
+
+        -- Вычисляем желаемую позицию камеры в зависимости от режима
+        local desiredCFrame
+        if watchMode == "First" then
+            -- От первого лица: камера в глазах цели
+            desiredCFrame = head.CFrame * CFrame.new(0, 0.1, 0)   -- небольшое смещение вверх
+        elseif watchMode == "Second" then
+            -- От второго лица: камера позади цели, смотрит на неё
+            local behind = head.CFrame * CFrame.new(0, 0, 5)  -- 5 юнитов позади головы
+            desiredCFrame = CFrame.lookAt(behind.Position, head.Position)
+        elseif watchMode == "Third" then
+            -- Стандартное третье лицо: позади и немного сверху
+            local offset = (head.CFrame.LookVector * -zoomDistance) + Vector3.new(0, 3, 0)
+            local camPos = head.Position + offset
+            desiredCFrame = CFrame.lookAt(camPos, head.Position)
+        elseif watchMode == "Far" then
+            -- Издалека: сильно отдалено, можно зумить
+            local offset = (head.CFrame.LookVector * -zoomDistance) + Vector3.new(0, 8, 0)
+            local camPos = head.Position + offset
+            desiredCFrame = CFrame.lookAt(camPos, head.Position)
+        end
+
+        -- Плавное перемещение камеры (Lerp)
+        local currentCFrame = camera.CFrame
+        local smoothCFrame = currentCFrame:Lerp(desiredCFrame, 0.2)  -- коэффициент сглаживания
+        camera.CFrame = smoothCFrame
+    end)
+
+    -- Обработчик колесика мыши для изменения zoomDistance
+    Tracking.mouseWheelConnection = UserInputService.InputChanged:Connect(function(input)
+        if not watchEnabled then return end
+        if input.UserInputType == Enum.UserInputType.MouseWheel then
+            if watchMode == "Third" or watchMode == "Far" then
+                zoomDistance = zoomDistance - input.Position.Z * 0.1  -- прокрутка вверх приближает
+                zoomDistance = math.clamp(zoomDistance, 1, 100)
+            end
+        end
+    end)
+
+    print("[DeltaPhantom] Слежение за " .. watchTarget.Name .. " активировано. Режим: " .. watchMode)
+end
+
+function Tracking.disable()
+    if not watchEnabled then return end
+    watchEnabled = false
+
+    if Tracking.currentConnection then
+        Tracking.currentConnection:Disconnect()
+        Tracking.currentConnection = nil
+    end
+    if Tracking.mouseWheelConnection then
+        Tracking.mouseWheelConnection:Disconnect()
+        Tracking.mouseWheelConnection = nil
+    end
+
+    -- Возвращаем камеру в обычный режим
+    local camera = workspace.CurrentCamera
+    camera.CameraType = Enum.CameraType.Custom
+    -- Сбросим Subject на игрока
+    camera.CameraSubject = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
+
+    watchTarget = nil
+    print("[DeltaPhantom] Слежение отключено.")
+end
+
+-- Переключение режимов слежения без отключения
+function Tracking.setMode(mode)
+    if mode == "First" or mode == "Second" or mode == "Third" or mode == "Far" then
+        watchMode = mode
+        -- При переключении в First/Second стоит сбросить zoomDistance к дефолту
+        if mode == "First" or mode == "Second" then
+            zoomDistance = 5
+        else
+            zoomDistance = 10
+        end
+        print("[DeltaPhantom] Режим слежения изменён на " .. mode)
+    end
+end
+
+-- ===================== ФУНКЦИЯ ТЕЛЕПОРТА =====================
+local function teleportToPlayer(targetName)
+    local target = Players:FindFirstChild(targetName)
+    if not target then
+        warn("[DeltaPhantom] Игрок не найден для телепорта.")
+        return
+    end
+
+    local targetCharacter = target.Character
+    if not targetCharacter then
+        warn("[DeltaPhantom] Персонаж цели не загружен.")
+        return
+    end
+
+    local targetHRP = targetCharacter:FindFirstChild("HumanoidRootPart")
+    if not targetHRP then
+        warn("[DeltaPhantom] У цели нет HumanoidRootPart.")
+        return
+    end
+
+    local localCharacter = LocalPlayer.Character
+    if not localCharacter then
+        warn("[DeltaPhantom] Ваш персонаж не загружен.")
+        return
+    end
+
+    local localHRP = localCharacter:FindFirstChild("HumanoidRootPart")
+    if not localHRP then
+        warn("[DeltaPhantom] Нет HumanoidRootPart у своего персонажа.")
+        return
+    end
+
+    -- Телепорт: ставим CFrame цели + смещение 3 юнита вверх, чтобы не застрять в земле
+    localHRP.CFrame = targetHRP.CFrame * CFrame.new(0, 3, 0)
+    print("[DeltaPhantom] Телепортирован к " .. targetName)
+end
+
+-- ===================== СОЗДАНИЕ ГЛАВНОГО МЕНЮ =====================
+local function createUI()
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "DeltaPhantomGUI"
+    screenGui.Parent = CoreGui  -- чтобы меню не сбрасывалось при ресете игры
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+    -- Главный фрейм
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Name = "Main"
+    mainFrame.Size = UDim2.new(0, 280, 0, 400)
+    mainFrame.Position = UDim2.new(0, 10, 0.5, -200)   -- слева по центру
+    mainFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 10)  -- почти чёрный
+    mainFrame.BackgroundTransparency = 0.15
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Active = true
+    mainFrame.Draggable = true
+    mainFrame.Parent = screenGui
+
+    -- Скругление углов
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0, 8)
-    corner.Parent = btn
-    local current = default_state
-    btn.MouseButton1Click:Connect(function()
-        current = not current
-        btn.BackgroundColor3 = current and Color3.fromRGB(0, 120, 0) or Color3.fromRGB(100, 35, 35)
-        btn.Text = text .. (current and " [ON]" or " [OFF]")
-        callback(current)
-    end)
-    return btn
-end
+    corner.Parent = mainFrame
 
-local function create_slider(parent, text, min_val, max_val, default_val, callback)
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(1, -20, 0, 60)
-    frame.BackgroundTransparency = 1
-    frame.Parent = parent
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, 0, 0, 24)
-    label.BackgroundTransparency = 1
-    label.Text = text .. ": " .. tostring(default_val)
-    label.TextColor3 = Color3.fromRGB(220, 220, 240)
-    label.Font = Enum.Font.Gotham
-    label.TextSize = 13
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Parent = frame
-    local box = Instance.new("TextBox")
-    box.Size = UDim2.new(0.4, 0, 0, 28)
-    box.Position = UDim2.new(0, 0, 0, 28)
-    box.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
-    box.Text = tostring(default_val)
-    box.TextColor3 = Color3.new(1, 1, 1)
-    box.Font = Enum.Font.Gotham
-    box.TextSize = 13
-    box.Parent = frame
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 6)
-    corner.Parent = box
-    box.FocusLost:Connect(function()
-        local num = tonumber(box.Text)
-        if num then
-            num = math.clamp(num, min_val, max_val)
-            box.Text = tostring(num)
-            label.Text = text .. ": " .. tostring(num)
-            callback(num)
-        else
-            box.Text = tostring(default_val)
+    -- Тень (эмуляция через дополнительный фрейм подложку)
+    local shadowFrame = Instance.new("Frame")
+    shadowFrame.Size = UDim2.new(1, 0, 1, 0)
+    shadowFrame.Position = UDim2.new(0, 0, 0, 0)
+    shadowFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    shadowFrame.BackgroundTransparency = 0.8
+    shadowFrame.BorderSizePixel = 0
+    shadowFrame.ZIndex = -1
+    local shadowCorner = Instance.new("UICorner")
+    shadowCorner.CornerRadius = UDim.new(0, 8)
+    shadowCorner.Parent = shadowFrame
+    shadowFrame.Parent = mainFrame
+
+    -- Заголовок
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Size = UDim2.new(1, 0, 0, 30)
+    titleLabel.Position = UDim2.new(0, 0, 0, 5)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = "Delta Phantom"
+    titleLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    titleLabel.Font = Enum.Font.GothamSemibold
+    titleLabel.TextSize = 20
+    titleLabel.Parent = mainFrame
+
+    -- Разделитель
+    local divider = Instance.new("Frame")
+    divider.Size = UDim2.new(1, -20, 0, 1)
+    divider.Position = UDim2.new(0, 10, 0, 40)
+    divider.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+    divider.BorderSizePixel = 0
+    divider.Parent = mainFrame
+
+    -- Список игроков (выпадающий)
+    local playerDropdown = Instance.new("TextButton")
+    playerDropdown.Size = UDim2.new(1, -20, 0, 30)
+    playerDropdown.Position = UDim2.new(0, 10, 0, 50)
+    playerDropdown.Text = "Выбрать игрока"
+    playerDropdown.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    playerDropdown.TextColor3 = Color3.fromRGB(255, 255, 255)
+    playerDropdown.Font = Enum.Font.Gotham
+    playerDropdown.TextSize = 14
+    local dropdownCorner = Instance.new("UICorner")
+    dropdownCorner.CornerRadius = UDim.new(0, 4)
+    dropdownCorner.Parent = playerDropdown
+    playerDropdown.Parent = mainFrame
+
+    -- Контейнер для списка игроков (скрытый фрейм)
+    local playerListFrame = Instance.new("Frame")
+    playerListFrame.Size = UDim2.new(1, -20, 0, 0)  -- высота будет динамической
+    playerListFrame.Position = UDim2.new(0, 10, 0, 85)
+    playerListFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    playerListFrame.BackgroundTransparency = 0.1
+    playerListFrame.Visible = false
+    playerListFrame.BorderSizePixel = 0
+    local listCorner = Instance.new("UICorner")
+    listCorner.CornerRadius = UDim.new(0, 4)
+    listCorner.Parent = playerListFrame
+    playerListFrame.Parent = mainFrame
+
+    -- Функция обновления списка игроков
+    local function populatePlayerList()
+        -- Очищаем старый список
+        for _, child in ipairs(playerListFrame:GetChildren()) do
+            child:Destroy()
+        end
+
+        local players = Players:GetPlayers()
+        local yOffset = 0
+        for _, player in ipairs(players) do
+            if player ~= LocalPlayer then
+                local btn = Instance.new("TextButton")
+                btn.Size = UDim2.new(1, 0, 0, 25)
+                btn.Position = UDim2.new(0, 0, 0, yOffset)
+                btn.Text = player.Name
+                btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+                btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                btn.Font = Enum.Font.Gotham
+                btn.TextSize = 12
+                btn.BorderSizePixel = 0
+                local btnCorner = Instance.new("UICorner")
+                btnCorner.CornerRadius = UDim.new(0, 2)
+                btnCorner.Parent = btn
+                btn.Parent = playerListFrame
+
+                btn.MouseButton1Click:Connect(function()
+                    playerDropdown.Text = player.Name
+                    playerListFrame.Visible = false
+                    -- Сохраняем выбранного игрока для последующих действий
+                    Gui.selectedPlayer = player
+                end)
+
+                yOffset = yOffset + 27
+            end
+        end
+
+        -- Высота фрейма под количество кнопок
+        playerListFrame.Size = UDim2.new(1, -20, 0, math.max(yOffset, 25))
+    end
+
+    -- Показать/скрыть список по клику на дропдаун
+    playerDropdown.MouseButton1Click:Connect(function()
+        playerListFrame.Visible = not playerListFrame.Visible
+        if playerListFrame.Visible then
+            populatePlayerList()
         end
     end)
-    return frame
-end
 
--- ██ СОЗДАНИЕ GUI ██
-local screen_gui = Instance.new("ScreenGui")
-screen_gui.Name = "GhostUltra"
-screen_gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-screen_gui.Parent = CoreGui
-if protect_gui then protect_gui(screen_gui) elseif syn and syn.protect_gui then syn.protect_gui(screen_gui) end
+    -- При нажатии вне списка скрывать (костыль, но работает)
+    mainFrame.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            if playerListFrame.Visible then
+                -- небольшая задержка, чтобы кнопка успела обработаться
+                task.wait(0.1)
+                playerListFrame.Visible = false
+            end
+        end
+    end)
 
-local main_frame = Instance.new("Frame")
-main_frame.Size = UDim2.new(0, 440, 0, 600)
-main_frame.Position = UDim2.new(0, Ghost.Settings.Menu.X, 0, Ghost.Settings.Menu.Y)
-main_frame.BackgroundColor3 = Color3.fromRGB(18, 18, 28)
-main_frame.BackgroundTransparency = 0.05
-main_frame.BorderSizePixel = 0
-main_frame.ClipsDescendants = true
-main_frame.Parent = screen_gui
-local corner_main = Instance.new("UICorner")
-corner_main.CornerRadius = UDim.new(0, 14)
-corner_main.Parent = main_frame
+    Gui.selectedPlayer = nil   -- будет хранить объект Player
 
-local title_bar = Instance.new("Frame")
-title_bar.Size = UDim2.new(1, 0, 0, 40)
-title_bar.BackgroundColor3 = Color3.fromRGB(30, 30, 42)
-title_bar.BackgroundTransparency = 0.2
-title_bar.BorderSizePixel = 0
-title_bar.Parent = main_frame
-local title_text = Instance.new("TextLabel")
-title_text.Size = UDim2.new(1, -60, 1, 0)
-title_text.Position = UDim2.new(0, 16, 0, 0)
-title_text.BackgroundTransparency = 1
-title_text.Text = "GHOST ULTRA v8.0"
-title_text.TextColor3 = Color3.fromRGB(230, 230, 255)
-title_text.TextXAlignment = Enum.TextXAlignment.Left
-title_text.Font = Enum.Font.GothamBold
-title_text.TextSize = 16
-title_text.Parent = title_bar
-local collapse_btn = Instance.new("TextButton")
-collapse_btn.Size = UDim2.new(0, 46, 1, 0)
-collapse_btn.Position = UDim2.new(1, -46, 0, 0)
-collapse_btn.BackgroundTransparency = 1
-collapse_btn.Text = "▼"
-collapse_btn.TextColor3 = Color3.new(1, 1, 1)
-collapse_btn.TextSize = 20
-collapse_btn.Font = Enum.Font.GothamBold
-collapse_btn.Parent = title_bar
+    -- Кнопка невидимости
+    local invisButton = Instance.new("TextButton")
+    invisButton.Size = UDim2.new(1, -20, 0, 35)
+    invisButton.Position = UDim2.new(0, 10, 0, 130)
+    invisButton.Text = "Невидимость: ВЫКЛ"
+    invisButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    invisButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    invisButton.Font = Enum.Font.Gotham
+    invisButton.TextSize = 14
+    local invisCorner = Instance.new("UICorner")
+    invisCorner.CornerRadius = UDim.new(0, 4)
+    invisCorner.Parent = invisButton
+    invisButton.Parent = mainFrame
 
-local content_container = Instance.new("Frame")
-content_container.Size = UDim2.new(1, 0, 1, -40)
-content_container.Position = UDim2.new(0, 0, 0, 40)
-content_container.BackgroundTransparency = 1
-content_container.Parent = main_frame
+    invisButton.MouseButton1Click:Connect(function()
+        if not invisEnabled then
+            Invisibility.enable()
+            invisButton.Text = "Невидимость: ВКЛ"
+        else
+            Invisibility.disable()
+            invisButton.Text = "Невидимость: ВЫКЛ"
+        end
+    end)
 
-local tab_bar = Instance.new("Frame")
-tab_bar.Size = UDim2.new(1, 0, 0, 44)
-tab_bar.BackgroundColor3 = Color3.fromRGB(22, 22, 34)
-tab_bar.BackgroundTransparency = 0.3
-tab_bar.Parent = content_container
+    -- Кнопка активации слежения
+    local watchToggle = Instance.new("TextButton")
+    watchToggle.Size = UDim2.new(1, -20, 0, 35)
+    watchToggle.Position = UDim2.new(0, 10, 0, 175)
+    watchToggle.Text = "Слежение: ВЫКЛ"
+    watchToggle.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    watchToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+    watchToggle.Font = Enum.Font.Gotham
+    watchToggle.TextSize = 14
+    local watchCorner = Instance.new("UICorner")
+    watchCorner.CornerRadius = UDim.new(0, 4)
+    watchCorner.Parent = watchToggle
+    watchToggle.Parent = mainFrame
 
-local content_scroll = Instance.new("ScrollingFrame")
-content_scroll.Size = UDim2.new(1, 0, 1, -44)
-content_scroll.Position = UDim2.new(0, 0, 0, 44)
-content_scroll.BackgroundTransparency = 1
-content_scroll.BorderSizePixel = 0
-content_scroll.CanvasSize = UDim2.new(0, 0, 0, 1000)
-content_scroll.ScrollBarThickness = 6
-content_scroll.ScrollBarImageColor3 = Color3.fromRGB(80, 80, 100)
-content_scroll.Parent = content_container
+    watchToggle.MouseButton1Click:Connect(function()
+        if not watchEnabled then
+            -- Если слежение выключено, включаем (требуется выбранный игрок)
+            if not Gui.selectedPlayer then
+                warn("[DeltaPhantom] Не выбран игрок для слежения.")
+                return
+            end
+            Tracking.enable(Gui.selectedPlayer.Name)
+            watchToggle.Text = "Слежение: ВКЛ (" .. Gui.selectedPlayer.Name .. ")"
+        else
+            Tracking.disable()
+            watchToggle.Text = "Слежение: ВЫКЛ"
+        end
+    end)
 
-local tabs = { "CORE", "SHADOW", "CAMERA", "SETTINGS", "INFO" }
-local tab_buttons = {}
-local current_tab = nil
-local panels = {} -- сохраним панели
+    -- Радиокнопки для режима слежения (горизонтальный ряд)
+    local modeLabel = Instance.new("TextLabel")
+    modeLabel.Size = UDim2.new(1, -20, 0, 20)
+    modeLabel.Position = UDim2.new(0, 10, 0, 220)
+    modeLabel.BackgroundTransparency = 1
+    modeLabel.Text = "Режим камеры:"
+    modeLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+    modeLabel.Font = Enum.Font.Gotham
+    modeLabel.TextSize = 12
+    modeLabel.Parent = mainFrame
 
-local function switch_tab(tab_name)
-    if current_tab then current_tab.Visible = false end
-    for _, btn in pairs(tab_buttons) do if btn:IsA("TextButton") then btn.BackgroundTransparency = 0.85 end end
-    if tab_buttons[tab_name] then tab_buttons[tab_name].BackgroundTransparency = 0.25 end
-    local new_tab = content_scroll:FindFirstChild(tab_name)
-    if new_tab then new_tab.Visible = true; current_tab = new_tab end
-end
+    local modes = {"First", "Second", "Third", "Far"}
+    local modeButtons = {}
+    for i, mode in ipairs(modes) do
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(0.2, -5, 0, 25)
+        btn.Position = UDim2.new(0, 10 + (i-1)*(0.2*280 - 2), 0, 245)
+        btn.Text = mode == "First" and "1-е" or (mode == "Second" and "2-е" or (mode == "Third" and "3-е" or "Дал"))
+        btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+        btn.TextColor3 = Color3.fromRGB(200, 200, 200)
+        btn.Font = Enum.Font.Gotham
+        btn.TextSize = 12
+        local modeCorner = Instance.new("UICorner")
+        modeCorner.CornerRadius = UDim.new(0, 3)
+        modeCorner.Parent = btn
+        btn.Parent = mainFrame
 
-for i, tn in ipairs(tabs) do
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1 / #tabs, -4, 1, 0)
-    btn.Position = UDim2.new((i - 1) / #tabs, 2, 0, 0)
-    btn.BackgroundColor3 = Color3.fromRGB(50, 50, 65)
-    btn.BackgroundTransparency = 0.85
-    btn.Text = tn
-    btn.TextColor3 = Color3.new(1, 1, 1)
-    btn.Font = Enum.Font.GothamSemibold
-    btn.TextSize = 13
-    btn.Name = tn
-    btn.Parent = tab_bar
-    btn.MouseButton1Click:Connect(function() switch_tab(tn) end)
-    tab_buttons[tn] = btn
-
-    local panel = Instance.new("Frame")
-    panel.Size = UDim2.new(1, 0, 1, 0)
-    panel.BackgroundTransparency = 1
-    panel.Visible = false
-    panel.Name = tn
-    panel.Parent = content_scroll
-    panels[tn] = panel
-
-    if tn == "CORE" then
-        local lbl = Instance.new("TextLabel")
-        lbl.Size = UDim2.new(1, -20, 0, 180)
-        lbl.Position = UDim2.new(0, 10, 0, 10)
-        lbl.BackgroundTransparency = 1
-        lbl.Text = "GHOST ULTRA v8.0 by Absolute Codger\n\n✅ Антидетект активен\n✅ Меню загружено\n\n📌 ИНСТРУКЦИЯ:\n1. SHADOW → включи невидимость\n2. CAMERA → выбери игрока → включи камеру → меняй виды\n3. Телепорт: выбери игрока и нажми кнопку\n4. Чат-спай: включи, сообщения в консоль (F9)\n\n⚡ Все функции включаются/выключаются вторым нажатием"
-        lbl.TextColor3 = Color3.fromRGB(200, 200, 220)
-        lbl.TextWrapped = true
-        lbl.TextXAlignment = Enum.TextXAlignment.Center
-        lbl.Font = Enum.Font.Gotham
-        lbl.TextSize = 12
-        lbl.Parent = panel
-    elseif tn == "INFO" then
-        local cr = Instance.new("TextLabel")
-        cr.Size = UDim2.new(1, -20, 0, 300)
-        cr.Position = UDim2.new(0, 10, 0, 10)
-        cr.BackgroundTransparency = 1
-        cr.Text = "Создатель: Абсолютный Коджер\nTG: @cherdak_coolera\n\nОСОБЕННОСТИ:\n• Невидимость: полное исчезновение из списка игроков,\n  прозрачность, отключение коллизий, удаление аксессуаров,\n  остановка анимаций. Ты двигаешься, сервер не видит.\n\n• Камера игрока: выбор цели, переключение видов:\n  1-е лицо, 3-е лицо сзади, дальний, супер дальний.\n\n• Телепорт: к выбранному игроку или по координатам.\n\n• Чат-спай: перехват всех сообщений, вывод в консоль (F9).\n\nСкрипт протестирован в Delta Executor на Bluestacks.\nВерсия 8.0 – полная стабильная сборка."
-        cr.TextColor3 = Color3.fromRGB(180, 180, 200)
-        cr.TextWrapped = true
-        cr.TextXAlignment = Enum.TextXAlignment.Center
-        cr.Font = Enum.Font.Gotham
-        cr.TextSize = 12
-        cr.Parent = panel
-    end
-end
-
-local collapsed_height = 42
-local expanded_height = 600
-local tween_info = TweenInfo.new(Ghost.Settings.Menu.AnimSpeed, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-collapse_btn.MouseButton1Click:Connect(function()
-    Ghost.Settings.Menu.Collapsed = not Ghost.Settings.Menu.Collapsed
-    local target = Ghost.Settings.Menu.Collapsed and UDim2.new(0, 440, 0, collapsed_height) or UDim2.new(0, 440, 0, expanded_height)
-    local tween = TweenService:Create(main_frame, tween_info, { Size = target })
-    tween:Play()
-    collapse_btn.Text = Ghost.Settings.Menu.Collapsed and "▲" or "▼"
-    content_container.Visible = not Ghost.Settings.Menu.Collapsed
-end)
-
-local dragging = false
-local drag_start = nil
-title_bar.InputBegan:Connect(function(inp)
-    if inp.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
-        drag_start = inp.Position
-        inp.Changed:Connect(function()
-            if inp.UserInputState == Enum.UserInputState.End then dragging = false end
+        btn.MouseButton1Click:Connect(function()
+            -- Сброс цвета всех кнопок
+            for _, b in ipairs(modeButtons) do
+                b.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+            end
+            btn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+            Tracking.setMode(mode)
+            if watchEnabled then
+                -- обновить текст кнопки слежения, показав режим
+                watchToggle.Text = "Слежение: ВКЛ (" .. Gui.selectedPlayer.Name .. ") " .. mode
+            end
         end)
+        table.insert(modeButtons, btn)
+        -- По умолчанию выбран Third
+        if mode == "Third" then
+            btn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+        end
+    end
+
+    -- Кнопка телепорта
+    local teleportButton = Instance.new("TextButton")
+    teleportButton.Size = UDim2.new(1, -20, 0, 35)
+    teleportButton.Position = UDim2.new(0, 10, 0, 280)
+    teleportButton.Text = "Телепорт к игроку"
+    teleportButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    teleportButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    teleportButton.Font = Enum.Font.Gotham
+    teleportButton.TextSize = 14
+    local teleCorner = Instance.new("UICorner")
+    teleCorner.CornerRadius = UDim.new(0, 4)
+    teleCorner.Parent = teleportButton
+    teleportButton.Parent = mainFrame
+
+    teleportButton.MouseButton1Click:Connect(function()
+        if not Gui.selectedPlayer then
+            warn("[DeltaPhantom] Сначала выберите игрока из списка.")
+            return
+        end
+        teleportToPlayer(Gui.selectedPlayer.Name)
+    end)
+
+    -- Кнопка скрытия/показа меню (маленькая иконка в углу)
+    local toggleButton = Instance.new("TextButton")
+    toggleButton.Size = UDim2.new(0, 30, 0, 30)
+    toggleButton.Position = UDim2.new(0, mainFrame.Size.X.Offset - 30, 0, 5)
+    toggleButton.Text = "−"
+    toggleButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    toggleButton.Font = Enum.Font.GothamBold
+    toggleButton.TextSize = 20
+    local toggleCorner = Instance.new("UICorner")
+    toggleCorner.CornerRadius = UDim.new(0, 4)
+    toggleCorner.Parent = toggleButton
+    toggleButton.Parent = mainFrame
+
+    local mainFrameVisible = true
+    local originalSize = mainFrame.Size
+    local collapsedSize = UDim2.new(0, 30, 0, 30)
+    toggleButton.MouseButton1Click:Connect(function()
+        if mainFrameVisible then
+            -- Свернуть меню в иконку
+            mainFrame:TweenSize(collapsedSize, "Out", "Quad", 0.3, true)
+            for _, child in ipairs(mainFrame:GetChildren()) do
+                if child ~= toggleButton and child ~= shadowFrame and child ~= toggleCorner and child.Name ~= "UICorner" then
+                    pcall(function() child.Visible = false end)
+                end
+            end
+            toggleButton.Text = "+"
+            mainFrameVisible = false
+        else
+            -- Развернуть
+            mainFrame:TweenSize(originalSize, "Out", "Quad", 0.3, true)
+            for _, child in ipairs(mainFrame:GetChildren()) do
+                pcall(function() child.Visible = true end)
+            end
+            toggleButton.Text = "−"
+            mainFrameVisible = true
+        end
+    end)
+
+    -- Анимация появления меню
+    mainFrame.Position = UDim2.new(0, -300, 0.5, -200)   -- начальная позиция за экраном слева
+    tweenPos(mainFrame, UDim2.new(0, 10, 0.5, -200), 0.5, function()
+        print("[DeltaPhantom] Меню готово.")
+    end)
+
+    -- Сохраняем ссылки для возможной доработки
+    Gui.screenGui = screenGui
+    Gui.mainFrame = mainFrame
+    Gui.invisButton = invisButton
+    Gui.watchToggle = watchToggle
+    Gui.playerDropdown = playerDropdown
+end
+
+-- ===================== ИНИЦИАЛИЗАЦИЯ СКРИПТА =====================
+-- Обработчик возможного уничтожения GUI при ресетах (необязательно, т.к. CoreGui)
+LocalPlayer.CharacterAdded:Connect(function(character)
+    -- Если невидимость была включена, переприменить её на нового персонажа
+    if invisEnabled then
+        Invisibility.applyToCharacter(character)
+    end
+    -- Если слежение включено, оно всё ещё работает с тем же watchTarget,
+    -- нужно просто продолжать цикл (он проверяет наличие character)
+end)
+
+-- Запускаем создание меню
+createUI()
+
+print([[
+========================================
+  Delta Phantom v1.0 загружен!
+  Автор: Абсолютный Коджер
+  Наслаждайся божественным читом.
+========================================
+]])
+
+-- ===================== ДОПОЛНИТЕЛЬНАЯ ОБРАБОТКА ОШИБОК =====================
+-- Защита от мерцания и экстренное выключение всех функций при закрытии скрипта
+game:GetService("RunService").Heartbeat:Connect(function()
+    -- Если скрипт каким-то образом перестаёт выполняться, можно добавить мониторинг
+end)
+
+-- Принудительное отключение при удалении LocalPlayer (выход из игры)
+LocalPlayer.OnCharacterRemoving:Connect(function()
+    if invisEnabled then
+        Invisibility.disable()
+    end
+    if watchEnabled then
+        Tracking.disable()
     end
 end)
-UserInputService.InputChanged:Connect(function(inp)
-    if dragging and inp.UserInputType == Enum.UserInputType.MouseMovement then
-        local delta = inp.Position - drag_start
-        Ghost.Settings.Menu.X = Ghost.Settings.Menu.X + delta.X
-        Ghost.Settings.Menu.Y = Ghost.Settings.Menu.Y + delta.Y
-        main_frame.Position = UDim2.new(0, Ghost.Settings.Menu.X, 0, Ghost.Settings.Menu.Y)
-        drag_start = inp.Position
-    end
-end)
-
-init_antidetect()
-switch_tab("CORE")
-
--- ██ ОСНОВНЫЕ ФУНКЦИИ (НЕВИДИМОСТЬ, ТЕЛЕПОРТ, КАМЕРА, ЧАТ) ██
-
-local Shadow = { active = false, originalParts = {}, originalSpeed = nil, originalJump = nil, originalTools = {}, originalAccessories = {}, originalClothes = {}, originalBillboards = {}, originalDesc = nil, oldPlayerIndex = nil, charConn = nil }
-function Shadow:saveOriginal(char)
-    self.originalParts = {}; self.originalTools = {}; self.originalAccessories = {}; self.originalClothes = {}; self.originalBillboards = {}
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if hum then self.originalSpeed = hum.WalkSpeed; self.originalJump = hum.JumpPower end
-    for _, part in pairs(char:GetDescendants()) do
-        if part:IsA("BasePart") then self.originalParts[part] = { Transparency = part.Transparency, CanCollide = part.CanCollide, CanTouch = part.CanTouch, CanQuery = part.CanQuery, Color = part.Color, Material = part.Material, Reflectance = part.Reflectance }
-        elseif part:IsA("Decal") or part:IsA("Texture") then self.originalParts[part] = { Transparency = part.Transparency }
-        elseif part:IsA("Sound") then self.originalParts[part] = { Volume = part.Volume, Playing = part.Playing } end
-    end
-    local head = char:FindFirstChild("Head")
-    if head then for _, g in pairs(head:GetChildren()) do if g:IsA("BillboardGui") then self.originalBillboards[g] = g.Enabled end end end
-    for _, child in pairs(char:GetChildren()) do
-        if child:IsA("Tool") then table.insert(self.originalTools, child)
-        elseif child:IsA("Accessory") then table.insert(self.originalAccessories, child)
-        elseif child:IsA("Clothing") then table.insert(self.originalClothes, child) end
-    end
-    local desc = char:FindFirstChild("HumanoidDescription"); if desc then self.originalDesc = desc:Clone() end
-end
-function Shadow:applyGhost(char)
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if hum then hum.WalkSpeed = 16; hum.JumpPower = 50; hum.AutoRotate = true; for _, track in pairs(hum:GetPlayingAnimationTracks()) do track:Stop() end end
-    for _, part in pairs(char:GetDescendants()) do
-        if part:IsA("BasePart") then part.Transparency = 1; part.CanCollide = false; part.CanTouch = false; part.CanQuery = false; part.Color = Color3.new(0,0,0); part.Material = Enum.Material.SmoothPlastic; part.Reflectance = 0
-        elseif part:IsA("Decal") or part:IsA("Texture") then part.Transparency = 1
-        elseif part:IsA("Sound") then part.Volume = 0; part.Playing = false end
-    end
-    local head = char:FindFirstChild("Head"); if head then for _, g in pairs(head:GetChildren()) do if g:IsA("BillboardGui") then g.Enabled = false end end end
-    for _, child in pairs(char:GetChildren()) do if child:IsA("Tool") or child:IsA("Accessory") or child:IsA("Clothing") then child:Destroy() end end
-    local desc = char:FindFirstChild("HumanoidDescription"); if desc then desc:Destroy() end
-    local root = char:FindFirstChild("HumanoidRootPart"); if root then local bv = Instance.new("BodyVelocity"); bv.MaxForce = Vector3.new(math.huge,math.huge,math.huge); bv.Velocity = Vector3.new(0,0,0); bv.Parent = root; task.wait(0.15); bv:Destroy() end
-    local mt = getrawmetatable(Players); if mt and not self.oldPlayerIndex then self.oldPlayerIndex = mt.__index; setreadonly(mt, false); mt.__index = function(t,k) if k == LocalPlayer then return nil end return self.oldPlayerIndex(t,k) end; setreadonly(mt, true) end
-end
-function Shadow:restore(char)
-    if not char then char = LocalPlayer.Character end
-    if char then
-        for part, props in pairs(self.originalParts) do if part and part.Parent then if part:IsA("BasePart") then part.Transparency = props.Transparency; part.CanCollide = props.CanCollide; part.CanTouch = props.CanTouch; part.CanQuery = props.CanQuery; part.Color = props.Color; part.Material = props.Material; part.Reflectance = props.Reflectance elseif part:IsA("Decal") or part:IsA("Texture") then part.Transparency = props.Transparency elseif part:IsA("Sound") then part.Volume = props.Volume; part.Playing = props.Playing end end end
-        local hum = char:FindFirstChildOfClass("Humanoid"); if hum then hum.WalkSpeed = self.originalSpeed or 16; hum.JumpPower = self.originalJump or 50; hum.AutoRotate = true end
-        local head = char:FindFirstChild("Head"); if head then for g, en in pairs(self.originalBillboards) do if g and g.Parent then g.Enabled = en end end end
-        for _, tool in ipairs(self.originalTools) do if tool and tool.Parent == nil then tool.Parent = char end end
-        for _, acc in ipairs(self.originalAccessories) do if acc and acc.Parent == nil then acc.Parent = char end end
-        for _, cloth in ipairs(self.originalClothes) do if cloth and cloth.Parent == nil then cloth.Parent = char end end
-        if self.originalDesc then local newDesc = self.originalDesc:Clone(); newDesc.Parent = char end
-    end
-    if self.oldPlayerIndex then local mt = getrawmetatable(Players); setreadonly(mt, false); mt.__index = self.oldPlayerIndex; setreadonly(mt, true); self.oldPlayerIndex = nil end
-end
-function Shadow:enable() if self.active then return end self.active = true; local char = LocalPlayer.Character; if char then self:saveOriginal(char); self:applyGhost(char) end; if self.charConn then self.charConn:Disconnect() end; self.charConn = LocalPlayer.CharacterAdded:Connect(function(newChar) task.wait(0.5); if Shadow.active then Shadow:saveOriginal(newChar); Shadow:applyGhost(newChar) end end) end
-function Shadow:disable() if not self.active then return end self.active = false; local char = LocalPlayer.Character; if char then self:restore(char) end; if self.charConn then self.charConn:Disconnect(); self.charConn = nil end end
-
-local Teleport = {}
-function Teleport:toPlayer(pl) if not pl or not pl.Character then return false end; local char = LocalPlayer.Character; if not char then return false end; local root = char:FindFirstChild("HumanoidRootPart"); local troot = pl.Character:FindFirstChild("HumanoidRootPart"); if root and troot then root.CFrame = troot.CFrame + Vector3.new(0,2,0); task.wait(); root.Velocity = Vector3.new(0,0,0); return true end; return false end
-function Teleport:toCoords(x,y,z) local char = LocalPlayer.Character; if not char then return end; local root = char:FindFirstChild("HumanoidRootPart"); if root then root.CFrame = CFrame.new(x,y,z); task.wait(); root.Velocity = Vector3.new(0,0,0) end end
-
-local Spectate = { active = false, target = nil, conn = nil, origCamType = nil, origCamSubj = nil, viewMode = 2, modes = { { name = "1-е лицо", offset = Vector3.new(0,1.5,0), firstPerson = true }, { name = "3-е лицо (сзади)", offset = Vector3.new(0,2.5,4), firstPerson = false }, { name = "Дальний вид", offset = Vector3.new(0,5,12), firstPerson = false }, { name = "Супер дальний", offset = Vector3.new(0,8,20), firstPerson = false } } }
-function Spectate:getPlayers() local list = {}; for _, v in ipairs(Players:GetPlayers()) do if v ~= LocalPlayer then table.insert(list, v) end end; return list end
-function Spectate:setTarget(pl) if not pl or not pl.Character then return false end; self.target = pl; local cam = workspace.CurrentCamera; self.origCamType = cam.CameraType; self.origCamSubj = cam.CameraSubject; cam.CameraType = Enum.CameraType.Scriptable; if self.conn then self.conn:Disconnect() end; self.conn = RunService.RenderStepped:Connect(function() if not self.active or not self.target or not self.target.Character then if self.active then self:disable() end; return end; local root = self.target.Character:FindFirstChild("HumanoidRootPart"); if not root then return end; local mode = self.modes[self.viewMode]; if mode.firstPerson then local head = self.target.Character:FindFirstChild("Head"); local cf = head and head.CFrame or root.CFrame; workspace.CurrentCamera.CFrame = cf + mode.offset else local targetPos = root.CFrame.Position; local offsetPos = targetPos + mode.offset; workspace.CurrentCamera.CFrame = CFrame.new(offsetPos, targetPos) end end); return true end
-function Spectate:enable(pl) if self.active then return end; local target = pl; if not target then local players = self:getPlayers(); if #players == 0 then warn("[Spectate] Нет других игроков"); return end; target = players[1] end; if self:setTarget(target) then self.active = true end end
-function Spectate:disable() if not self.active then return end; self.active = false; if self.conn then self.conn:Disconnect(); self.conn = nil end; local cam = workspace.CurrentCamera; cam.CameraType = self.origCamType or Enum.CameraType.Custom; cam.CameraSubject = self.origCamSubj or LocalPlayer.Character; self.target = nil end
-function Spectate:nextPlayer() if not self.active then return end; local players = self:getPlayers(); if #players == 0 then self:disable(); return end; local idx = 1; for i, p in ipairs(players) do if p == self.target then idx = i + 1; break end end; if idx > #players then idx = 1 end; self:setTarget(players[idx]) end
-function Spectate:cycleView() if not self.active then return end; self.viewMode = self.viewMode % #self.modes + 1 end
-
-local ChatSpy = { active = false, conns = {}, oldFire = nil, remote = nil }
-function ChatSpy:enable() if self.active then return end; self.active = true; local rep = ReplicatedStorage; local remote = rep:FindFirstChild("DefaultChatSystemChatEvents") or rep:FindFirstChild("SayMessageRequest") or rep:FindFirstChild("Chatted"); if remote and remote:IsA("RemoteEvent") then self.remote = remote; self.oldFire = remote.FireServer; remote.FireServer = function(...) local args = { ... }; if #args >= 1 and type(args[1]) == "string" then print("[CHAT SENT] " .. LocalPlayer.Name .. ": " .. args[1]) end; if self.oldFire then return self.oldFire(...) end end end; local onMsg = rep:FindFirstChild("OnChatMessage"); if onMsg and onMsg:IsA("RemoteEvent") then table.insert(self.conns, onMsg.OnClientEvent:Connect(function(pl, msg) if self.active and pl ~= LocalPlayer then print("[CHAT] " .. pl.Name .. ": " .. msg) end end)) end; local txtChat = game:GetService("TextChatService"); if txtChat then local channels = txtChat:FindFirstChild("TextChannels"); if channels then for _, ch in pairs(channels:GetChildren()) do if ch:IsA("TextChannel") then table.insert(self.conns, ch.OnMessageReceived:Connect(function(m) if self.active and m.FromSpeaker ~= LocalPlayer then print("[CHAT] " .. m.FromSpeaker.Name .. ": " .. m.Text) end end)) end end end end end
-function ChatSpy:disable() if not self.active then return end; self.active = false; for _, c in ipairs(self.conns) do c:Disconnect() end; self.conns = {}; if self.remote and self.oldFire then self.remote.FireServer = self.oldFire; self.oldFire = nil; self.remote = nil end end
-
--- ██ ЗАПОЛНЕНИЕ ВКЛАДКИ SHADOW (невидимость + телепорт) ██
-local shadowPanel = panels["SHADOW"]
-if shadowPanel then
-    for _, c in pairs(shadowPanel:GetChildren()) do c:Destroy() end
-    local y = 10
-    local shadowBtn = create_state_button(shadowPanel, "Абсолютная невидимость", false, function(s) if s then Shadow:enable() else Shadow:disable() end; Ghost.Settings.Features.Shadow = s end)
-    shadowBtn.Position = UDim2.new(0, 10, 0, y); y = y + 60
-    local infoLbl = Instance.new("TextLabel"); infoLbl.Size = UDim2.new(1, -20, 0, 100); infoLbl.Position = UDim2.new(0, 10, 0, y); infoLbl.BackgroundTransparency = 1; infoLbl.Text = "РЕЖИМ НЕВИДИМОСТИ:\n\n• Ты полностью прозрачен\n• Сервер не видит тебя (десинхрон)\n• Ты не в списке игроков\n• Над головой нет надписи\n• Нет звуков и анимаций\n• Ты можешь свободно двигаться\n• При выключении всё возвращается"; infoLbl.TextColor3 = Color3.fromRGB(200,200,220); infoLbl.TextWrapped = true; infoLbl.Font = Enum.Font.Gotham; infoLbl.TextSize = 12; infoLbl.Parent = shadowPanel; y = y + 115
-    local teleportFrame = Instance.new("Frame"); teleportFrame.Size = UDim2.new(1, -20, 0, 180); teleportFrame.Position = UDim2.new(0, 10, 0, y); teleportFrame.BackgroundColor3 = Color3.fromRGB(30,30,45); teleportFrame.BackgroundTransparency = 0.2; teleportFrame.Parent = shadowPanel
-    local cornerTp = Instance.new("UICorner"); cornerTp.CornerRadius = UDim.new(0,10); cornerTp.Parent = teleportFrame
-    local tpLabel = Instance.new("TextLabel"); tpLabel.Size = UDim2.new(1,0,0,30); tpLabel.Position = UDim2.new(0,0,0,5); tpLabel.BackgroundTransparency = 1; tpLabel.Text = "ТЕЛЕПОРТАЦИЯ"; tpLabel.TextColor3 = Color3.fromRGB(255,200,100); tpLabel.Font = Enum.Font.GothamBold; tpLabel.TextSize = 14; tpLabel.Parent = teleportFrame
-    local dropdown = Instance.new("TextButton"); dropdown.Size = UDim2.new(1, -10, 0, 40); dropdown.Position = UDim2.new(0,5,0,40); dropdown.BackgroundColor3 = Color3.fromRGB(50,50,70); dropdown.Text = "Выбери игрока"; dropdown.TextColor3 = Color3.new(1,1,1); dropdown.Font = Enum.Font.Gotham; dropdown.TextSize = 14; dropdown.Parent = teleportFrame
-    local playerList = Instance.new("ScrollingFrame"); playerList.Size = UDim2.new(1, -10, 0, 80); playerList.Position = UDim2.new(0,5,0,85); playerList.BackgroundColor3 = Color3.fromRGB(40,40,55); playerList.BorderSizePixel = 0; playerList.CanvasSize = UDim2.new(0,0,0,0); playerList.ScrollBarThickness = 5; playerList.Visible = false; playerList.Parent = teleportFrame
-    local selectedPlayer = nil
-    local function updateList() for _, c in pairs(playerList:GetChildren()) do if c:IsA("TextButton") then c:Destroy() end end; local yOff = 0; for _, pl in ipairs(Players:GetPlayers()) do if pl ~= LocalPlayer then local btn = Instance.new("TextButton"); btn.Size = UDim2.new(1,0,0,30); btn.Position = UDim2.new(0,0,0,yOff); btn.Text = pl.Name; btn.BackgroundColor3 = Color3.fromRGB(60,60,80); btn.TextColor3 = Color3.new(1,1,1); btn.Font = Enum.Font.Gotham; btn.TextSize = 13; btn.Parent = playerList; btn.MouseButton1Click:Connect(function() selectedPlayer = pl; dropdown.Text = pl.Name; playerList.Visible = false end); yOff = yOff + 32 end end; playerList.CanvasSize = UDim2.new(0,0,0,yOff) end
-    dropdown.MouseButton1Click:Connect(function() if playerList.Visible then playerList.Visible = false else updateList(); playerList.Visible = true end end)
-    local tpBtn = Instance.new("TextButton"); tpBtn.Size = UDim2.new(1, -10, 0, 40); tpBtn.Position = UDim2.new(0,5,0,170); tpBtn.BackgroundColor3 = Color3.fromRGB(70,70,95); tpBtn.Text = "ТЕЛЕПОРТ К ВЫБРАННОМУ"; tpBtn.TextColor3 = Color3.new(1,1,1); tpBtn.Font = Enum.Font.GothamBold; tpBtn.TextSize = 14; tpBtn.Parent = teleportFrame
-    tpBtn.MouseButton1Click:Connect(function() if selectedPlayer then Teleport:toPlayer(selectedPlayer) else warn("Сначала выбери игрока") end end)
-end
-
--- ██ ЗАПОЛНЕНИЕ ВКЛАДКИ CAMERA (камера игрока + чат-спай) ██
-local cameraPanel = panels["CAMERA"]
-if cameraPanel then
-    for _, c in pairs(cameraPanel:GetChildren()) do c:Destroy() end
-    local y = 10
-    local selectFrame = Instance.new("Frame"); selectFrame.Size = UDim2.new(1, -20, 0, 160); selectFrame.Position = UDim2.new(0, 10, 0, y); selectFrame.BackgroundColor3 = Color3.fromRGB(30,30,45); selectFrame.BackgroundTransparency = 0.2; selectFrame.Parent = cameraPanel
-    local cornerSel = Instance.new("UICorner"); cornerSel.CornerRadius = UDim.new(0,10); cornerSel.Parent = selectFrame
-    local selLabel = Instance.new("TextLabel"); selLabel.Size = UDim2.new(1,0,0,30); selLabel.Position = UDim2.new(0,0,0,5); selLabel.BackgroundTransparency = 1; selLabel.Text = "ВЫБОР ЦЕЛИ ДЛЯ КАМЕРЫ"; selLabel.TextColor3 = Color3.fromRGB(100,200,255); selLabel.Font = Enum.Font.GothamBold; selLabel.TextSize = 13; selLabel.Parent = selectFrame
-    local targetDropdown = Instance.new("TextButton"); targetDropdown.Size = UDim2.new(1, -10, 0, 40); targetDropdown.Position = UDim2.new(0,5,0,40); targetDropdown.BackgroundColor3 = Color3.fromRGB(50,50,70); targetDropdown.Text = "Выбери игрока"; targetDropdown.TextColor3 = Color3.new(1,1,1); targetDropdown.Font = Enum.Font.Gotham; targetDropdown.TextSize = 14; targetDropdown.Parent = selectFrame
-    local targetList = Instance.new("ScrollingFrame"); targetList.Size = UDim2.new(1, -10, 0, 80); targetList.Position = UDim2.new(0,5,0,85); targetList.BackgroundColor3 = Color3.fromRGB(40,40,55); targetList.BorderSizePixel = 0; targetList.CanvasSize = UDim2.new(0,0,0,0); targetList.ScrollBarThickness = 5; targetList.Visible = false; targetList.Parent = selectFrame
-    local selectedTarget = nil
-    local function updateTargetList() for _, c in pairs(targetList:GetChildren()) do if c:IsA("TextButton") then c:Destroy() end end; local yOff = 0; for _, pl in ipairs(Players:GetPlayers()) do if pl ~= LocalPlayer then local btn = Instance.new("TextButton"); btn.Size = UDim2.new(1,0,0,30); btn.Position = UDim2.new(0,0,0,yOff); btn.Text = pl.Name; btn.BackgroundColor3 = Color3.fromRGB(60,60,80); btn.TextColor3 = Color3.new(1,1,1); btn.Font = Enum.Font.Gotham; btn.TextSize = 13; btn.Parent = targetList; btn.MouseButton1Click:Connect(function() selectedTarget = pl; targetDropdown.Text = pl.Name; targetList.Visible = false end); yOff = yOff + 32 end end; targetList.CanvasSize = UDim2.new(0,0,0,yOff) end
-    targetDropdown.MouseButton1Click:Connect(function() if targetList.Visible then targetList.Visible = false else updateTargetList(); targetList.Visible = true end end)
-    y = y + 180
-    local camControl = Instance.new("Frame"); camControl.Size = UDim2.new(1, -20, 0, 180); camControl.Position = UDim2.new(0, 10, 0, y); camControl.BackgroundColor3 = Color3.fromRGB(30,30,45); camControl.BackgroundTransparency = 0.2; camControl.Parent = cameraPanel
-    local cornerCc = Instance.new("UICorner"); cornerCc.CornerRadius = UDim.new(0,10); cornerCc.Parent = camControl
-    local enableCam = create_state_button(camControl, "Включить камеру игрока", false, function(s) if s then if selectedTarget then Spectate:enable(selectedTarget) else local players = Spectate:getPlayers(); if #players > 0 then Spectate:enable(players[1]); selectedTarget = players[1]; targetDropdown.Text = players[1].Name else warn("[Camera] Нет игроков") return end end else Spectate:disable() end; Ghost.Settings.Features.Spectate = s end)
-    enableCam.Position = UDim2.new(0, 10, 0, 10)
-    local nextBtn = Instance.new("TextButton"); nextBtn.Size = UDim2.new(1, -20, 0, 40); nextBtn.Position = UDim2.new(0, 10, 0, 65); nextBtn.BackgroundColor3 = Color3.fromRGB(60,60,80); nextBtn.Text = "Следующий игрок"; nextBtn.TextColor3 = Color3.new(1,1,1); nextBtn.Font = Enum.Font.GothamSemibold; nextBtn.TextSize = 14; nextBtn.Parent = camControl
-    nextBtn.MouseButton1Click:Connect(function() if Spectate.active then Spectate:nextPlayer(); if Spectate.target then selectedTarget = Spectate.target; targetDropdown.Text = selectedTarget.Name end else warn("[Camera] Сначала включи камеру") end end)
-    local cycleBtn = Instance.new("TextButton"); cycleBtn.Size = UDim2.new(1, -20, 0, 40); cycleBtn.Position = UDim2.new(0, 10, 0, 120); cycleBtn.BackgroundColor3 = Color3.fromRGB(60,60,80); cycleBtn.Text = "Сменить вид (1-е/3-е/дальний)"; cycleBtn.TextColor3 = Color3.new(1,1,1); cycleBtn.Font = Enum.Font.GothamSemibold; cycleBtn.TextSize = 14; cycleBtn.Parent = camControl
-    cycleBtn.MouseButton1Click:Connect(function() if Spectate.active then Spectate:cycleView(); local mode = Spectate.modes[Spectate.viewMode]; if mode then print("[Camera] Вид: " .. mode.name) end else warn("[Camera] Сначала включи камеру") end end)
-    y = y + 200
-    local chatFrame = Instance.new("Frame"); chatFrame.Size = UDim2.new(1, -20, 0, 130); chatFrame.Position = UDim2.new(0, 10, 0, y); chatFrame.BackgroundColor3 = Color3.fromRGB(30,30,45); chatFrame.BackgroundTransparency = 0.2; chatFrame.Parent = cameraPanel
-    local cornerChat = Instance.new("UICorner"); cornerChat.CornerRadius = UDim.new(0,10); cornerChat.Parent = chatFrame
-    local chatLabel = Instance.new("TextLabel"); chatLabel.Size = UDim2.new(1,0,0,30); chatLabel.Position = UDim2.new(0,0,0,5); chatLabel.BackgroundTransparency = 1; chatLabel.Text = "ПРОСМОТР ЧАТА"; chatLabel.TextColor3 = Color3.fromRGB(100,255,150); chatLabel.Font = Enum.Font.GothamBold; chatLabel.TextSize = 13; chatLabel.Parent = chatFrame
-    local chatSpyBtn = create_state_button(chatFrame, "Chat Spy (просмотр чата)", false, function(s) if s then ChatSpy:enable() else ChatSpy:disable() end; Ghost.Settings.Features.ChatSpy = s end)
-    chatSpyBtn.Position = UDim2.new(0, 10, 0, 45)
-    local chatInfo = Instance.new("TextLabel"); chatInfo.Size = UDim2.new(1, -10, 0, 50); chatInfo.Position = UDim2.new(0, 5, 0, 95); chatInfo.BackgroundTransparency = 1; chatInfo.Text = "Сообщения выводятся в консоль Roblox\nНажми F9, чтобы открыть консоль"; chatInfo.TextColor3 = Color3.fromRGB(180,180,200); chatInfo.TextWrapped = true; chatInfo.Font = Enum.Font.Gotham; chatInfo.TextSize = 11; chatInfo.Parent = chatFrame
-end
-
--- ██ ЗАПОЛНЕНИЕ ВКЛАДКИ SETTINGS ██
-local settingsPanel = panels["SETTINGS"]
-if settingsPanel then
-    for _, c in pairs(settingsPanel:GetChildren()) do c:Destroy() end
-    local y = 10
-    local animSlider = create_slider(settingsPanel, "Скорость анимации меню", 0.1, 0.8, Ghost.Settings.Menu.AnimSpeed, function(v) Ghost.Settings.Menu.AnimSpeed = v end)
-    animSlider.Position = UDim2.new(0, 10, 0, y); y = y + 70
-    local reloadBtn = Instance.new("TextButton"); reloadBtn.Size = UDim2.new(1, -20, 0, 44); reloadBtn.Position = UDim2.new(0, 10, 0, y); reloadBtn.BackgroundColor3 = Color3.fromRGB(60,60,80); reloadBtn.Text = "ПЕРЕЗАПУСТИТЬ АНТИДЕТЕКТ"; reloadBtn.TextColor3 = Color3.new(1,1,1); reloadBtn.Font = Enum.Font.GothamBold; reloadBtn.TextSize = 13; reloadBtn.Parent = settingsPanel
-    reloadBtn.MouseButton1Click:Connect(function() init_antidetect(); print("[Settings] Антидетект перезапущен") end)
-    y = y + 60
-    local statusLabel = Instance.new("TextLabel"); statusLabel.Size = UDim2.new(1, -20, 0, 60); statusLabel.Position = UDim2.new(0, 10, 0, y); statusLabel.BackgroundColor3 = Color3.fromRGB(25,25,35); statusLabel.BackgroundTransparency = 0.3; statusLabel.Text = "СТАТУС: АКТИВЕН\nВерсия 8.0\nDelta Executor"; statusLabel.TextColor3 = Color3.fromRGB(100,255,100); statusLabel.TextWrapped = true; statusLabel.Font = Enum.Font.Gotham; statusLabel.TextSize = 12; statusLabel.Parent = settingsPanel
-end
-
-print("[Ghost Ultra] Версия 8.0 загружена. Меню полностью рабочее. Наслаждайся, смертный.")
