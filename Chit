@@ -1,7 +1,7 @@
 --[[
-    Delta Phantom v3.0 — Квантовая точка (реальная серверная невидимость)
+    Delta Phantom v3.1 — Стабильная невидимость без полётов и падений
     Автор: Абсолютный Коджер
-    Метод: миниатюризация + fly + noclip — персонаж не виден никому.
+    Невидимость: прозрачность + скрытие UI. Управление не меняется.
 --]]
 
 -- ===================== СЕРВИСЫ =====================
@@ -22,15 +22,7 @@ local watchTarget = nil
 local watchMode = "Third"
 local zoomDistance = 10
 local tweenObjects = {}
-
--- Переменные для невидимости
-local invisData = {
-    originalSizes = {},
-    originalTransparencies = {},
-    originalCanCollide = {},
-    savedCFrame = nil,
-    flyConnection = nil
-}
+local invisConnections = {}
 
 -- ===================== УТИЛИТЫ =====================
 local function safeFind(instance, name)
@@ -62,7 +54,7 @@ local function tweenPos(guiObject, targetPosition, duration, callback)
     return tween
 end
 
--- ===================== НЕВИДИМОСТЬ (КВАНТОВАЯ ТОЧКА) =====================
+-- ===================== КЛАССИЧЕСКАЯ СТАБИЛЬНАЯ НЕВИДИМОСТЬ =====================
 local Invisibility = {}
 
 function Invisibility.enable()
@@ -77,32 +69,12 @@ function Invisibility.enable()
         return
     end
 
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
+    invisEnabled = true
 
-    -- Сохраняем текущие параметры
-    invisData.savedCFrame = hrp.CFrame
+    -- Прозрачность всех частей тела (включая одежду и аксессуары)
     for _, part in ipairs(character:GetDescendants()) do
         if part:IsA("BasePart") then
-            invisData.originalSizes[part] = part.Size
-            invisData.originalTransparencies[part] = part.Transparency
-            invisData.originalCanCollide[part] = part.CanCollide
-        end
-    end
-
-    -- Применяем миниатюризацию и прозрачность ко всем частям
-    for _, part in ipairs(character:GetDescendants()) do
-        if part:IsA("BasePart") then
-            if part == hrp then
-                -- Корневую часть делаем прозрачной и бесколлизионной
-                part.Transparency = 1
-                part.CanCollide = false
-            else
-                -- Остальные части уменьшаем до микроскопического размера
-                part.Size = Vector3.new(0.05, 0.05, 0.05)
-                part.Transparency = 1
-                part.CanCollide = false
-            end
+            part.Transparency = 1
         elseif part:IsA("BillboardGui") then
             part.Enabled = false
         end
@@ -116,77 +88,35 @@ function Invisibility.enable()
     local topBar = safeFind(CoreGui:FindFirstChild("RobloxGui"), "TopBar")
     if topBar then topBar.Visible = false end
 
-    -- Включаем режим полёта (без физики)
-    local flySpeed = 50
-    invisData.flyConnection = RunService.RenderStepped:Connect(function(deltaTime)
-        if not invisEnabled then return end
-        local char = LocalPlayer.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-        local root = char.HumanoidRootPart
-
-        -- Управление полётом через WASD и пробел/шифт
-        local moveDir = Vector3.new(0, 0, 0)
-        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-            moveDir = moveDir + workspace.CurrentCamera.CFrame.LookVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-            moveDir = moveDir - workspace.CurrentCamera.CFrame.LookVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-            moveDir = moveDir - workspace.CurrentCamera.CFrame.RightVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-            moveDir = moveDir + workspace.CurrentCamera.CFrame.RightVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-            moveDir = moveDir + Vector3.new(0, 1, 0)
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
-            moveDir = moveDir - Vector3.new(0, 1, 0)
-        end
-
-        if moveDir.Magnitude > 0 then
-            moveDir = moveDir.Unit * flySpeed * deltaTime * 60
-            root.CFrame = root.CFrame + moveDir
+    -- Предотвращаем появление новых BillboardGui (никнеймы в зонах)
+    local descConn = character.DescendantAdded:Connect(function(child)
+        if child:IsA("BillboardGui") then
+            child.Enabled = false
         end
     end)
+    table.insert(invisConnections, descConn)
 
-    invisEnabled = true
-    print("[DeltaPhantom] Квантовая невидимость активирована. Ты – невидимая точка.")
+    print("[DeltaPhantom] Невидимость включена. Ты прозрачен, управление не изменено.")
 end
 
 function Invisibility.disable()
     if not invisEnabled then return end
     invisEnabled = false
 
-    -- Останавливаем полёт
-    if invisData.flyConnection then
-        invisData.flyConnection:Disconnect()
-        invisData.flyConnection = nil
+    -- Отключаем слушатели
+    for _, conn in ipairs(invisConnections) do
+        conn:Disconnect()
     end
+    invisConnections = {}
 
     local character = LocalPlayer.Character
     if character then
-        local hrp = character:FindFirstChild("HumanoidRootPart")
-        -- Восстанавливаем исходные параметры частей
-        for part, origSize in pairs(invisData.originalSizes) do
-            pcall(function()
-                part.Size = origSize
-            end)
-        end
-        for part, origTrans in pairs(invisData.originalTransparencies) do
-            pcall(function()
-                part.Transparency = origTrans
-            end)
-        end
-        for part, origCanCollide in pairs(invisData.originalCanCollide) do
-            pcall(function()
-                part.CanCollide = origCanCollide
-            end)
-        end
-        -- Возвращаем на сохранённую позицию
-        if hrp and invisData.savedCFrame then
-            hrp.CFrame = invisData.savedCFrame
+        for _, part in ipairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.Transparency = 0
+            elseif part:IsA("BillboardGui") then
+                part.Enabled = true
+            end
         end
     end
 
@@ -198,14 +128,10 @@ function Invisibility.disable()
     local topBar = safeFind(CoreGui:FindFirstChild("RobloxGui"), "TopBar")
     if topBar then topBar.Visible = true end
 
-    -- Очищаем сохранённые данные
-    invisData.originalSizes = {}
-    invisData.originalTransparencies = {}
-    invisData.originalCanCollide = {}
-    print("[DeltaPhantom] Квантовая невидимость отключена.")
+    print("[DeltaPhantom] Невидимость отключена.")
 end
 
--- ===================== СЛЕЖЕНИЕ =====================
+-- ===================== СЛЕЖЕНИЕ (БЕЗ ИЗМЕНЕНИЙ) =====================
 local Tracking = {}
 Tracking.currentConnection = nil
 Tracking.mouseWheelConnection = nil
@@ -234,23 +160,14 @@ function Tracking.enable(targetPlayerName)
     camera.CameraType = Enum.CameraType.Scriptable
 
     Tracking.currentConnection = RunService.RenderStepped:Connect(function(deltaTime)
-        if not watchEnabled or not watchTarget then
-            return
-        end
+        if not watchEnabled or not watchTarget then return end
 
         local character = watchTarget.Character
-        if not character then
-            return
-        end
+        if not character then return end
 
         local head = character:FindFirstChild("Head")
         local humanoidRoot = character:FindFirstChild("HumanoidRootPart")
-        if not head or not humanoidRoot then
-            return
-        end
-
-        local targetPosition = humanoidRoot.Position
-        local targetLookVector = head.CFrame.LookVector
+        if not head or not humanoidRoot then return end
 
         local desiredCFrame
         if watchMode == "First" then
@@ -357,7 +274,7 @@ local function teleportToPlayer(targetName)
     print("[DeltaPhantom] Телепортирован к " .. targetName)
 end
 
--- ===================== ТРОЛЛИНГ (СОХРАНЁН ИЗ v2.1) =====================
+-- ===================== ТРОЛЛИНГ (СОХРАНЁН ИЗ v3.0) =====================
 local Trolling = {}
 
 local function findRemoteEvents(keywords)
@@ -401,8 +318,8 @@ function Trolling.screamer(targetName)
     local guiEvents = findRemoteEvents({"gui", "notification", "popup", "show", "display", "ui", "message"})
     local soundEvents = findRemoteEvents({"sound", "audio", "music", "play"})
 
-    local imageId = "rbxassetid://1234567890"  -- замени на реальный ID скримера
-    local soundId = "rbxassetid://9876543210"  -- замени на ID звука
+    local imageId = "rbxassetid://1234567890"  -- замени на реальный ID
+    local soundId = "rbxassetid://9876543210"  -- замени на реальный ID
 
     local success = false
     if #guiEvents > 0 then
@@ -529,7 +446,7 @@ local function createUI()
     titleLabel.Size = UDim2.new(1, 0, 0, 30)
     titleLabel.Position = UDim2.new(0, 0, 0, 5)
     titleLabel.BackgroundTransparency = 1
-    titleLabel.Text = "Delta Phantom v3.0"
+    titleLabel.Text = "Delta Phantom v3.1"
     titleLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
     titleLabel.Font = Enum.Font.GothamSemibold
     titleLabel.TextSize = 20
@@ -806,7 +723,7 @@ local function createUI()
     end)
 
     tweenPos(mainFrame, expandedPosition, 0.5, function()
-        print("[DeltaPhantom v3.0] Меню готово.")
+        print("[DeltaPhantom v3.1] Меню готово.")
     end)
 
     Gui.screenGui = screenGui
@@ -819,7 +736,7 @@ end
 -- ===================== ОБРАБОТЧИКИ ПЕРЕРОЖДЕНИЯ =====================
 LocalPlayer.CharacterAdded:Connect(function(character)
     if invisEnabled then
-        -- После перерождения нужно заново включить невидимость
+        -- Переподключаем невидимость для нового персонажа
         Invisibility.disable()
         wait(0.1)
         Invisibility.enable()
@@ -831,7 +748,7 @@ createUI()
 
 print([[
 ========================================
-  Delta Phantom v3.0 — Квантовая точка
-  Ты невидим для всех. Абсолютно.
+  Delta Phantom v3.1 — Надёжная классика
+  Без полётов, без падений, без сюрпризов.
 ========================================
 ]])
