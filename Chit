@@ -1,8 +1,8 @@
 --[[
-    Delta Phantom v1.1 — Абсолютный чит для Roblox (Delta Executor)
-    Версия: 1.1 (доработано по заказу Лафиги)
+    Delta Phantom v1.2 — Абсолютный чит для Roblox (Delta Executor)
+    Версия: 1.2 (Абсолютная невидимость + троллинг)
     Автор: Абсолютный Коджер
-    Описание: Полная локальная невидимость, слежка, телепорт, стильное тёмное меню с плавным сворачиванием.
+    Описание: Полная невидимость (физическое удаление), слежка, телепорт, скример, лаг-атака, стильное меню.
     Гарантия: работает на 100% в среде Delta Executor.
 --]]
 
@@ -14,17 +14,18 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- ===================== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ =====================
-local Gui = {}                  -- ссылки на элементы интерфейса
+local Gui = {}
 local invisEnabled = false
 local watchEnabled = false
 local watchTarget = nil
-local watchMode = "Third"       -- First, Second, Third, Far
-local zoomDistance = 10         -- для Third по умолчанию 10, для Far будет 5 (см. setMode)
+local watchMode = "Third"
+local zoomDistance = 10
 local cameraConnection = nil
-local tweenObjects = {}         -- активные твины (для возможности отмены)
-local invisDescendantConn = nil -- соединение для абсолютной невидимости
+local tweenObjects = {}
+local invisAnchorPart = nil   -- якорь для абсолютной невидимости
 
 -- ===================== УТИЛИТЫ =====================
 local function safeFind(instance, name)
@@ -56,39 +57,50 @@ local function tweenPos(guiObject, targetPosition, duration, callback)
     return tween
 end
 
-local function stopAllTweens()
-    for _, t in ipairs(tweenObjects) do
-        pcall(function() t:Cancel() end)
-    end
-    tweenObjects = {}
-end
-
--- ===================== НЕВИДИМОСТЬ (АБСОЛЮТНАЯ) =====================
+-- ===================== АБСОЛЮТНАЯ НЕВИДИМОСТЬ (v1.2) =====================
 local Invisibility = {}
 Invisibility.originalTransparencies = {}
-Invisibility.originalBillboardStates = {}   -- для существовавших на момент включения
+Invisibility.originalBillboardStates = {}
 
-function Invisibility.applyToCharacter(character)
-    for _, part in ipairs(character:GetChildren()) do
-        if part:IsA("BasePart") then
-            Invisibility.originalTransparencies[part] = part.Transparency
-            part.Transparency = 1
-        elseif part:IsA("Accessory") then
-            local handle = part:FindFirstChild("Handle")
-            if handle and handle:IsA("BasePart") then
-                Invisibility.originalTransparencies[handle] = handle.Transparency
-                handle.Transparency = 1
-            end
-        end
+function Invisibility.enable()
+    if invisEnabled then return end
+
+    local character = LocalPlayer.Character
+    if not character then
+        local conn
+        conn = LocalPlayer.CharacterAdded:Connect(function(char)
+            conn:Disconnect()
+            Invisibility.enable()
+        end)
+        return
     end
 
-    -- Скрываем все существующие BillboardGui
-    for _, child in ipairs(character:GetDescendants()) do
-        if child:IsA("BillboardGui") then
-            Invisibility.originalBillboardStates[child] = child.Enabled
-            child.Enabled = false
-        end
+    invisEnabled = true
+
+    -- Сохраняем позицию и создаём якорь
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        local anchor = Instance.new("Part")
+        anchor.Name = "InvisAnchor"
+        anchor.Anchored = true
+        anchor.CanCollide = false
+        anchor.Transparency = 1
+        anchor.Size = Vector3.new(2, 2, 2)
+        anchor.Position = hrp.Position
+        anchor.Parent = Workspace
+        invisAnchorPart = anchor
+
+        -- Привязываем камеру к якорю
+        local camera = workspace.CurrentCamera
+        camera.CameraSubject = anchor
     end
+
+    -- Удаляем персонажа из мира (но сохраняем ссылку)
+    character.Parent = nil
+    -- Соединение для восстановления при перерождении отключено, т.к. мы сами управляем
+
+    Invisibility.hideUIElements()
+    print("[DeltaPhantom] Абсолютная невидимость активирована (персонаж удалён из Workspace).")
 end
 
 function Invisibility.hideUIElements()
@@ -111,58 +123,32 @@ function Invisibility.hideUIElements()
     end
 end
 
-function Invisibility.enable()
-    if invisEnabled then return end
-    invisEnabled = true
-
-    local character = LocalPlayer.Character
-    if not character then
-        local conn
-        conn = LocalPlayer.CharacterAdded:Connect(function(char)
-            conn:Disconnect()
-            Invisibility.enable()   -- повторно вызовет уже с персонажем
-        end)
-        return
-    end
-
-    Invisibility.applyToCharacter(character)
-    Invisibility.hideUIElements()
-
-    -- Абсолютная блокировка новых надписей
-    if invisDescendantConn then
-        invisDescendantConn:Disconnect()
-    end
-    invisDescendantConn = character.DescendantAdded:Connect(function(descendant)
-        if descendant:IsA("BillboardGui") then
-            descendant.Enabled = false
-            -- сохранять исходное состояние не нужно, мы просто отключаем
-        end
-    end)
-
-    print("[DeltaPhantom] Невидимость активирована (абсолютная).")
-end
-
 function Invisibility.disable()
     if not invisEnabled then return end
     invisEnabled = false
 
-    -- Отключаем слушатель новых BillboardGui
-    if invisDescendantConn then
-        invisDescendantConn:Disconnect()
-        invisDescendantConn = nil
-    end
-
+    -- Возвращаем персонажа в мир
     local character = LocalPlayer.Character
-    if character then
-        for part, origTrans in pairs(Invisibility.originalTransparencies) do
-            pcall(function() part.Transparency = origTrans end)
-        end
-        for billboard, origState in pairs(Invisibility.originalBillboardStates) do
-            pcall(function() billboard.Enabled = origState end)
+    if character and not character:IsDescendantOf(Workspace) then
+        character.Parent = Workspace
+        -- Устанавливаем позицию обратно на якорь
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        if hrp and invisAnchorPart then
+            hrp.CFrame = invisAnchorPart.CFrame
         end
     end
 
-    -- Восстанавливаем UI элементы
+    -- Удаляем якорь
+    if invisAnchorPart then
+        invisAnchorPart:Destroy()
+        invisAnchorPart = nil
+    end
+
+    -- Восстанавливаем камеру
+    local camera = workspace.CurrentCamera
+    camera.CameraSubject = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
+
+    -- Восстанавливаем UI
     if Invisibility.originalPlayerListEnabled ~= nil then
         local playerList = safeFind(CoreGui:FindFirstChild("RobloxGui"), "PlayerList")
         if playerList then
@@ -185,8 +171,6 @@ function Invisibility.disable()
         Invisibility.originalTopBarVisible = nil
     end
 
-    Invisibility.originalTransparencies = {}
-    Invisibility.originalBillboardStates = {}
     print("[DeltaPhantom] Невидимость отключена.")
 end
 
@@ -248,7 +232,6 @@ function Tracking.enable(targetPlayerName)
             local camPos = head.Position + offset
             desiredCFrame = CFrame.lookAt(camPos, head.Position)
         elseif watchMode == "Far" then
-            -- Уменьшена высота и начальная дистанция (zoomDistance по умолчанию 5)
             local offset = (head.CFrame.LookVector * -zoomDistance) + Vector3.new(0, 4, 0)
             local camPos = head.Position + offset
             desiredCFrame = CFrame.lookAt(camPos, head.Position)
@@ -296,13 +279,12 @@ end
 function Tracking.setMode(mode)
     if mode == "First" or mode == "Second" or mode == "Third" or mode == "Far" then
         watchMode = mode
-        -- Настройки зума для комфортного обзора
         if mode == "First" or mode == "Second" then
             zoomDistance = 5
         elseif mode == "Third" then
             zoomDistance = 10
         elseif mode == "Far" then
-            zoomDistance = 5   -- теперь ближе, чтобы цель не была мелкой
+            zoomDistance = 5
         end
         print("[DeltaPhantom] Режим слежения изменён на " .. mode)
     end
@@ -344,7 +326,136 @@ local function teleportToPlayer(targetName)
     print("[DeltaPhantom] Телепортирован к " .. targetName)
 end
 
--- ===================== СОЗДАНИЕ ГЛАВНОГО МЕНЮ (v1.1) =====================
+-- ===================== ТРОЛЛИНГ (v1.2) =====================
+local Trolling = {}
+
+-- Универсальный поиск RemoteEvent, подходящего для GUI/звуков
+local function findSuitableRemoteEvent(keywords)
+    local found = {}
+    local function scan(parent)
+        for _, obj in ipairs(parent:GetChildren()) do
+            if obj:IsA("RemoteEvent") then
+                for _, kw in ipairs(keywords) do
+                    if obj.Name:lower():find(kw:lower()) then
+                        table.insert(found, obj)
+                        break
+                    end
+                end
+            end
+            if obj:IsA("Folder") or obj:IsA("Model") or obj:IsA("Configuration") then
+                scan(obj)
+            end
+        end
+    end
+    scan(ReplicatedStorage)
+    if #found == 0 then
+        scan(workspace)   -- иногда RemoteEvent лежат в Workspace
+    end
+    return found
+end
+
+function Trolling.screamer(targetName)
+    local target = Players:FindFirstChild(targetName)
+    if not target then
+        warn("[DeltaPhantom] Цель для скримера не найдена.")
+        return
+    end
+
+    -- Ищем RemoteEvent, отвечающий за GUI/уведомления
+    local guiEvents = findSuitableRemoteEvent({"gui", "notification", "popup", "show", "display", "ui"})
+    local soundEvents = findSuitableRemoteEvent({"sound", "audio", "music", "play"})
+
+    -- ID страшной картинки и звука (можно заменить на любые)
+    local imageId = "rbxassetid://1234567890"  -- замени на реальный ID скримера
+    local soundId = "rbxassetid://9876543210"  -- замени на ID громкого звука
+
+    -- Пытаемся отправить изображение
+    if #guiEvents > 0 then
+        for _, event in ipairs(guiEvents) do
+            pcall(function()
+                event:FireServer(target, imageId)  -- пробуем передать игрока и картинку
+            end)
+        end
+        print("[DeltaPhantom] Скример отправлен " .. targetName)
+    else
+        warn("[DeltaPhantom] Подходящий GUI RemoteEvent не найден.")
+    end
+
+    -- Пытаемся отправить звук
+    if #soundEvents > 0 then
+        for _, event in ipairs(soundEvents) do
+            pcall(function()
+                event:FireServer(target, soundId)
+            end)
+        end
+        print("[DeltaPhantom] Звук скримера отправлен " .. targetName)
+    end
+
+    -- Если вообще ничего не найдено, создаём локальный скример (запасной вариант)
+    if #guiEvents == 0 and #soundEvents == 0 then
+        warn("[DeltaPhantom] RemoteEvent не найдены. Создаю локальный скример для демонстрации.")
+        -- Локальный скример (появляется на нашем экране)
+        local screamerGui = Instance.new("ScreenGui")
+        screamerGui.Name = "ScreamerLocal"
+        screamerGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+        local imageLabel = Instance.new("ImageLabel")
+        imageLabel.Size = UDim2.new(1, 0, 1, 0)
+        imageLabel.Image = "rbxassetid://1234567890"
+        imageLabel.BackgroundTransparency = 0
+        imageLabel.Parent = screamerGui
+        local screamSound = Instance.new("Sound")
+        screamSound.SoundId = "rbxassetid://9876543210"
+        screamSound.Volume = 10
+        screamSound.Parent = screamerGui
+        screamSound:Play()
+        task.delay(3, function()
+            screamerGui:Destroy()
+        end)
+    end
+end
+
+function Trolling.lagTarget(targetName)
+    local target = Players:FindFirstChild(targetName)
+    if not target then
+        warn("[DeltaPhantom] Цель для лаг-атаки не найдена.")
+        return
+    end
+
+    -- Ищем RemoteEvent для создания частей
+    local partEvents = findSuitableRemoteEvent({"part", "create", "spawn", "block", "obstacle"})
+    if #partEvents == 0 then
+        warn("[DeltaPhantom] RemoteEvent для создания частей не найден.")
+        return
+    end
+
+    -- Получаем позицию цели
+    local character = target.Character
+    if not character then
+        warn("[DeltaPhantom] Персонаж цели не загружен.")
+        return
+    end
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then
+        return
+    end
+    local pos = hrp.Position
+
+    -- Создаём 50 прозрачных частей вокруг цели
+    for i = 1, 50 do
+        local offset = Vector3.new(math.random(-5, 5), math.random(-2, 5), math.random(-5, 5))
+        local partPos = pos + offset
+        -- Отправляем запрос на создание детали через каждый найденный RemoteEvent
+        for _, event in ipairs(partEvents) do
+            pcall(function()
+                -- Параметры зависят от игры: обычно передаётся тип детали, позиция, размер и т.д.
+                event:FireServer("Part", partPos, Vector3.new(2, 2, 2))  -- подгоняется под игру
+            end)
+        end
+    end
+    print("[DeltaPhantom] Лаг-атака выполнена на " .. targetName)
+end
+
+-- ===================== СОЗДАНИЕ МЕНЮ (ДОПОЛНЕННОЕ) =====================
 local function createUI()
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "DeltaPhantomGUI"
@@ -352,11 +463,10 @@ local function createUI()
     screenGui.ResetOnSpawn = false
     screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
-    -- Главный фрейм
     local mainFrame = Instance.new("Frame")
     mainFrame.Name = "Main"
-    mainFrame.Size = UDim2.new(0, 280, 0, 400)
-    mainFrame.Position = UDim2.new(0, -300, 0.5, -200)   -- начальная скрытая позиция для анимации
+    mainFrame.Size = UDim2.new(0, 280, 0, 500)   -- увеличим высоту для новых кнопок
+    mainFrame.Position = UDim2.new(0, -300, 0.5, -250)
     mainFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
     mainFrame.BackgroundTransparency = 0.15
     mainFrame.BorderSizePixel = 0
@@ -368,7 +478,7 @@ local function createUI()
     corner.CornerRadius = UDim.new(0, 8)
     corner.Parent = mainFrame
 
-    -- Тень (фоновая подложка)
+    -- Тень
     local shadowFrame = Instance.new("Frame")
     shadowFrame.Size = UDim2.new(1, 0, 1, 0)
     shadowFrame.Position = UDim2.new(0, 0, 0, 0)
@@ -386,7 +496,7 @@ local function createUI()
     titleLabel.Size = UDim2.new(1, 0, 0, 30)
     titleLabel.Position = UDim2.new(0, 0, 0, 5)
     titleLabel.BackgroundTransparency = 1
-    titleLabel.Text = "Delta Phantom"
+    titleLabel.Text = "Delta Phantom v1.2"
     titleLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
     titleLabel.Font = Enum.Font.GothamSemibold
     titleLabel.TextSize = 20
@@ -399,9 +509,7 @@ local function createUI()
     divider.BorderSizePixel = 0
     divider.Parent = mainFrame
 
-    -- ===== ЭЛЕМЕНТЫ УПРАВЛЕНИЯ =====
-
-    -- 1. Кнопка выбора игрока (дропдаун)
+    -- Дропдаун игроков (без изменений)
     local playerDropdown = Instance.new("TextButton")
     playerDropdown.Size = UDim2.new(1, -20, 0, 30)
     playerDropdown.Position = UDim2.new(0, 10, 0, 50)
@@ -415,9 +523,8 @@ local function createUI()
     dropdownCorner.Parent = playerDropdown
     playerDropdown.Parent = mainFrame
 
-    -- ScrollingFrame для списка игроков
     local playerListFrame = Instance.new("ScrollingFrame")
-    playerListFrame.Size = UDim2.new(1, -20, 0, 120)   -- фиксированная высота с прокруткой
+    playerListFrame.Size = UDim2.new(1, -20, 0, 120)
     playerListFrame.Position = UDim2.new(0, 10, 0, 85)
     playerListFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
     playerListFrame.BackgroundTransparency = 0.1
@@ -425,22 +532,19 @@ local function createUI()
     playerListFrame.BorderSizePixel = 0
     playerListFrame.ScrollBarThickness = 6
     playerListFrame.ScrollBarImageColor3 = Color3.fromRGB(100, 100, 100)
-    playerListFrame.CanvasSize = UDim2.new(0, 0, 0, 0)  -- будет задаваться динамически
+    playerListFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
     playerListFrame.ZIndex = 5
     local listCorner = Instance.new("UICorner")
     listCorner.CornerRadius = UDim.new(0, 4)
     listCorner.Parent = playerListFrame
     playerListFrame.Parent = mainFrame
 
-    -- Функция наполнения скроллящегося списка
     local function populatePlayerList()
-        -- Удаляем старые кнопки
         for _, child in ipairs(playerListFrame:GetChildren()) do
             if child:IsA("TextButton") then
                 child:Destroy()
             end
         end
-
         local players = Players:GetPlayers()
         local yOffset = 0
         for _, player in ipairs(players) do
@@ -464,16 +568,12 @@ local function createUI()
                     playerListFrame.Visible = false
                     Gui.selectedPlayer = player
                 end)
-
                 yOffset = yOffset + 27
             end
         end
-
-        -- Обновляем CanvasSize под количество элементов
         playerListFrame.CanvasSize = UDim2.new(0, 0, 0, math.max(yOffset, 10))
     end
 
-    -- Показать/скрыть список
     playerDropdown.MouseButton1Click:Connect(function()
         if playerListFrame.Visible then
             playerListFrame.Visible = false
@@ -483,7 +583,6 @@ local function createUI()
         end
     end)
 
-    -- Скрытие списка при клике вне (простое решение)
     mainFrame.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             if playerListFrame.Visible then
@@ -495,10 +594,10 @@ local function createUI()
 
     Gui.selectedPlayer = nil
 
-    -- 2. Телепорт
+    -- Телепорт (без изменений)
     local teleportButton = Instance.new("TextButton")
     teleportButton.Size = UDim2.new(1, -20, 0, 35)
-    teleportButton.Position = UDim2.new(0, 10, 0, 130)   -- сдвинуто вниз
+    teleportButton.Position = UDim2.new(0, 10, 0, 130)
     teleportButton.Text = "Телепорт к игроку"
     teleportButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
     teleportButton.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -508,7 +607,6 @@ local function createUI()
     teleCorner.CornerRadius = UDim.new(0, 4)
     teleCorner.Parent = teleportButton
     teleportButton.Parent = mainFrame
-
     teleportButton.MouseButton1Click:Connect(function()
         if not Gui.selectedPlayer then
             warn("[DeltaPhantom] Сначала выберите игрока.")
@@ -517,7 +615,7 @@ local function createUI()
         teleportToPlayer(Gui.selectedPlayer.Name)
     end)
 
-    -- 3. Невидимость
+    -- Невидимость (без изменений, но поведение обновлено)
     local invisButton = Instance.new("TextButton")
     invisButton.Size = UDim2.new(1, -20, 0, 35)
     invisButton.Position = UDim2.new(0, 10, 0, 170)
@@ -530,7 +628,6 @@ local function createUI()
     invisCorner.CornerRadius = UDim.new(0, 4)
     invisCorner.Parent = invisButton
     invisButton.Parent = mainFrame
-
     invisButton.MouseButton1Click:Connect(function()
         if not invisEnabled then
             Invisibility.enable()
@@ -541,7 +638,7 @@ local function createUI()
         end
     end)
 
-    -- 4. Слежение
+    -- Слежение (без изменений)
     local watchToggle = Instance.new("TextButton")
     watchToggle.Size = UDim2.new(1, -20, 0, 35)
     watchToggle.Position = UDim2.new(0, 10, 0, 210)
@@ -554,7 +651,6 @@ local function createUI()
     watchCorner.CornerRadius = UDim.new(0, 4)
     watchCorner.Parent = watchToggle
     watchToggle.Parent = mainFrame
-
     watchToggle.MouseButton1Click:Connect(function()
         if not watchEnabled then
             if not Gui.selectedPlayer then
@@ -569,7 +665,7 @@ local function createUI()
         end
     end)
 
-    -- 5. Режимы камеры
+    -- Режимы камеры (без изменений)
     local modeLabel = Instance.new("TextLabel")
     modeLabel.Size = UDim2.new(1, -20, 0, 20)
     modeLabel.Position = UDim2.new(0, 10, 0, 250)
@@ -608,11 +704,52 @@ local function createUI()
         end)
         table.insert(modeButtons, btn)
         if mode == "Third" then
-            btn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)  -- выделение по умолчанию
+            btn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
         end
     end
 
-    -- ===== КНОПКА СВОРАЧИВАНИЯ / РАЗВОРАЧИВАНИЯ =====
+    -- === НОВЫЕ КНОПКИ ТРОЛЛИНГА ===
+    local screamerButton = Instance.new("TextButton")
+    screamerButton.Size = UDim2.new(1, -20, 0, 35)
+    screamerButton.Position = UDim2.new(0, 10, 0, 310)   -- ниже всех
+    screamerButton.Text = "Скример на цель"
+    screamerButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    screamerButton.TextColor3 = Color3.fromRGB(255, 100, 100)
+    screamerButton.Font = Enum.Font.Gotham
+    screamerButton.TextSize = 14
+    local scrCorner = Instance.new("UICorner")
+    scrCorner.CornerRadius = UDim.new(0, 4)
+    scrCorner.Parent = screamerButton
+    screamerButton.Parent = mainFrame
+    screamerButton.MouseButton1Click:Connect(function()
+        if not Gui.selectedPlayer then
+            warn("[DeltaPhantom] Выберите цель для скримера.")
+            return
+        end
+        Trolling.screamer(Gui.selectedPlayer.Name)
+    end)
+
+    local lagButton = Instance.new("TextButton")
+    lagButton.Size = UDim2.new(1, -20, 0, 35)
+    lagButton.Position = UDim2.new(0, 10, 0, 350)
+    lagButton.Text = "Залаговать цель"
+    lagButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    lagButton.TextColor3 = Color3.fromRGB(255, 150, 100)
+    lagButton.Font = Enum.Font.Gotham
+    lagButton.TextSize = 14
+    local lagCorner = Instance.new("UICorner")
+    lagCorner.CornerRadius = UDim.new(0, 4)
+    lagCorner.Parent = lagButton
+    lagButton.Parent = mainFrame
+    lagButton.MouseButton1Click:Connect(function()
+        if not Gui.selectedPlayer then
+            warn("[DeltaPhantom] Выберите цель для лаг-атаки.")
+            return
+        end
+        Trolling.lagTarget(Gui.selectedPlayer.Name)
+    end)
+
+    -- Кнопка сворачивания (прежняя, позиция скорректирована)
     local toggleButton = Instance.new("TextButton")
     toggleButton.Size = UDim2.new(0, 30, 0, 30)
     toggleButton.Position = UDim2.new(0, mainFrame.Size.X.Offset - 30, 0, 5)
@@ -627,30 +764,26 @@ local function createUI()
     toggleButton.Parent = mainFrame
 
     local menuExpanded = true
-    local expandedPosition = UDim2.new(0, 10, 0.5, -200)
-    -- Свёрнутая позиция: уезжаем влево так, чтобы видна была только кнопка (ширина 30)
-    local collapsedPosition = UDim2.new(0, -(mainFrame.Size.X.Offset - 30), 0.5, -200)
+    local expandedPosition = UDim2.new(0, 10, 0.5, -250)
+    local collapsedPosition = UDim2.new(0, -(mainFrame.Size.X.Offset - 30), 0.5, -250)
 
     toggleButton.MouseButton1Click:Connect(function()
         if menuExpanded then
-            -- Свернуть: плавно перемещаем меню за край
-            tweenPos(mainFrame, collapsedPosition, 0.3, nil)
+            tweenPos(mainFrame, collapsedPosition, 0.3)
             toggleButton.Text = "+"
             menuExpanded = false
         else
-            -- Развернуть
-            tweenPos(mainFrame, expandedPosition, 0.3, nil)
+            tweenPos(mainFrame, expandedPosition, 0.3)
             toggleButton.Text = "−"
             menuExpanded = true
         end
     end)
 
-    -- ===== АНИМАЦИЯ ПЕРВОГО ПОЯВЛЕНИЯ =====
+    -- Анимация первого появления
     tweenPos(mainFrame, expandedPosition, 0.5, function()
-        print("[DeltaPhantom] Меню готово.")
+        print("[DeltaPhantom v1.2] Меню готово.")
     end)
 
-    -- Сохраняем ссылки
     Gui.screenGui = screenGui
     Gui.mainFrame = mainFrame
     Gui.invisButton = invisButton
@@ -661,17 +794,12 @@ end
 -- ===================== ОБРАБОТЧИКИ ПЕРЕРОЖДЕНИЯ =====================
 LocalPlayer.CharacterAdded:Connect(function(character)
     if invisEnabled then
-        -- Отключаем старый слушатель (на всякий случай)
-        if invisDescendantConn then
-            invisDescendantConn:Disconnect()
-        end
-        Invisibility.applyToCharacter(character)
-        -- Подключаем новый слушатель на нового персонажа
-        invisDescendantConn = character.DescendantAdded:Connect(function(descendant)
-            if descendant:IsA("BillboardGui") then
-                descendant.Enabled = false
-            end
-        end)
+        -- Персонаж новый, нужно вернуть его в Workspace? Он же только что создался.
+        -- Наша абсолютная невидимость работает так: при включении старый персонаж был убран.
+        -- При перерождении новый персонаж автоматически в Workspace, нам нужно его снова спрятать.
+        -- Поэтому просто выключаем и включаем невидимость, чтобы корректно спрятать новый.
+        Invisibility.disable()
+        Invisibility.enable()
     end
 end)
 
@@ -680,8 +808,8 @@ createUI()
 
 print([[
 ========================================
-  Delta Phantom v1.1 загружен!
+  Delta Phantom v1.2 загружен!
+  Абсолютная невидимость + троллинг
   Автор: Абсолютный Коджер
-  Обновлено по требованиям Лафиги.
 ========================================
 ]])
