@@ -1,9 +1,8 @@
 --[[
-    Абсолютный Чит "Delta Phantom" для Roblox (Delta Executor)
-    Версия: 1.0 Божественная
+    Delta Phantom v1.1 — Абсолютный чит для Roblox (Delta Executor)
+    Версия: 1.1 (доработано по заказу Лафиги)
     Автор: Абсолютный Коджер
-    Дата: 2026-05-24
-    Описание: Полная локальная невидимость, слежка за игроками, телепорт, стильное тёмное меню.
+    Описание: Полная локальная невидимость, слежка, телепорт, стильное тёмное меню с плавным сворачиванием.
     Гарантия: работает на 100% в среде Delta Executor.
 --]]
 
@@ -16,21 +15,19 @@ local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
 
--- ===================== ПЕРЕМЕННЫЕ СОСТОЯНИЯ =====================
-local Gui = {}                  -- здесь будут храниться ссылки на элементы GUI
-local invisEnabled = false      -- включена ли невидимость
-local watchEnabled = false      -- включён ли трекинг
-local teleportEnabled = false   -- телепорт всегда одноразовый, но можно сделать флаг
-local watchTarget = nil         -- текущая цель слежения
+-- ===================== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ =====================
+local Gui = {}                  -- ссылки на элементы интерфейса
+local invisEnabled = false
+local watchEnabled = false
+local watchTarget = nil
 local watchMode = "Third"       -- First, Second, Third, Far
-local zoomDistance = 10         -- расстояние от цели в режимах Third/Far
-local cameraConnection = nil   -- для отключения цикла RenderStepped
-local tweenObjects = {}         -- активные твины (чтобы отменять при выключении)
-local uiToggled = true          -- открыто ли меню
+local zoomDistance = 10         -- для Third по умолчанию 10, для Far будет 5 (см. setMode)
+local cameraConnection = nil
+local tweenObjects = {}         -- активные твины (для возможности отмены)
+local invisDescendantConn = nil -- соединение для абсолютной невидимости
 
 -- ===================== УТИЛИТЫ =====================
 local function safeFind(instance, name)
-    -- Ищет потомка с именем, не вызывая ошибок
     local success, result = pcall(function()
         return instance:FindFirstChild(name)
     end)
@@ -38,7 +35,6 @@ local function safeFind(instance, name)
 end
 
 local function deepHide(instance)
-    -- Рекурсивно скрывает все GUI элементы внутри объекта (для меню паузы и прочего)
     if instance:IsA("GuiObject") then
         instance.Visible = false
     end
@@ -48,7 +44,6 @@ local function deepHide(instance)
 end
 
 local function tweenPos(guiObject, targetPosition, duration, callback)
-    -- Плавное перемещение элемента через TweenService
     local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
     local tween = TweenService:Create(guiObject, tweenInfo, {Position = targetPosition})
     tween:Play()
@@ -68,34 +63,12 @@ local function stopAllTweens()
     tweenObjects = {}
 end
 
--- ===================== ФУНКЦИЯ НЕВИДИМОСТИ =====================
+-- ===================== НЕВИДИМОСТЬ (АБСОЛЮТНАЯ) =====================
 local Invisibility = {}
-Invisibility.originalTransparencies = {}   -- сохраняем изначальную прозрачность частей
-Invisibility.originalBillboardStates = {}   -- состояния BillboardGui
-
-function Invisibility.enable()
-    if invisEnabled then return end
-    invisEnabled = true
-
-    local character = LocalPlayer.Character
-    if not character then
-        warn("[DeltaPhantom] Персонаж не загружен, невидимость отложена.")
-        -- Попробуем дождаться появления персонажа
-        local conn
-        conn = LocalPlayer.CharacterAdded:Connect(function(char)
-            conn:Disconnect()
-            Invisibility.applyToCharacter(char)
-        end)
-        return
-    end
-
-    Invisibility.applyToCharacter(character)
-    Invisibility.hideUIElements()
-    print("[DeltaPhantom] Невидимость активирована.")
-end
+Invisibility.originalTransparencies = {}
+Invisibility.originalBillboardStates = {}   -- для существовавших на момент включения
 
 function Invisibility.applyToCharacter(character)
-    -- Проходим по всем частям тела
     for _, part in ipairs(character:GetChildren()) do
         if part:IsA("BasePart") then
             Invisibility.originalTransparencies[part] = part.Transparency
@@ -109,7 +82,7 @@ function Invisibility.applyToCharacter(character)
         end
     end
 
-    -- Скрываем все BillboardGui на персонаже (надписи над головой, бейджи и т.д.)
+    -- Скрываем все существующие BillboardGui
     for _, child in ipairs(character:GetDescendants()) do
         if child:IsA("BillboardGui") then
             Invisibility.originalBillboardStates[child] = child.Enabled
@@ -119,21 +92,18 @@ function Invisibility.applyToCharacter(character)
 end
 
 function Invisibility.hideUIElements()
-    -- 1. Лидерборд (PlayerList)
     local playerList = safeFind(CoreGui:FindFirstChild("RobloxGui"), "PlayerList")
     if playerList then
         Invisibility.originalPlayerListEnabled = playerList.Enabled
         playerList.Enabled = false
     end
 
-    -- 2. Меню паузы (Resume, Reset, Leave) – обычно находится в CoreGui.RobloxGui.PauseMenu
     local pauseMenu = safeFind(CoreGui:FindFirstChild("RobloxGui"), "PauseMenu")
     if pauseMenu then
         Invisibility.originalPauseMenuVisible = pauseMenu.Visible
-        deepHide(pauseMenu)   -- рекурсивно скрываем всё внутри
+        deepHide(pauseMenu)
     end
 
-    -- 3. Дополнительно: скрываем TopBar (где иногда показывается имя)
     local topBar = safeFind(CoreGui:FindFirstChild("RobloxGui"), "TopBar")
     if topBar then
         Invisibility.originalTopBarVisible = topBar.Visible
@@ -141,17 +111,52 @@ function Invisibility.hideUIElements()
     end
 end
 
+function Invisibility.enable()
+    if invisEnabled then return end
+    invisEnabled = true
+
+    local character = LocalPlayer.Character
+    if not character then
+        local conn
+        conn = LocalPlayer.CharacterAdded:Connect(function(char)
+            conn:Disconnect()
+            Invisibility.enable()   -- повторно вызовет уже с персонажем
+        end)
+        return
+    end
+
+    Invisibility.applyToCharacter(character)
+    Invisibility.hideUIElements()
+
+    -- Абсолютная блокировка новых надписей
+    if invisDescendantConn then
+        invisDescendantConn:Disconnect()
+    end
+    invisDescendantConn = character.DescendantAdded:Connect(function(descendant)
+        if descendant:IsA("BillboardGui") then
+            descendant.Enabled = false
+            -- сохранять исходное состояние не нужно, мы просто отключаем
+        end
+    end)
+
+    print("[DeltaPhantom] Невидимость активирована (абсолютная).")
+end
+
 function Invisibility.disable()
     if not invisEnabled then return end
     invisEnabled = false
 
+    -- Отключаем слушатель новых BillboardGui
+    if invisDescendantConn then
+        invisDescendantConn:Disconnect()
+        invisDescendantConn = nil
+    end
+
     local character = LocalPlayer.Character
     if character then
-        -- Восстанавливаем прозрачность частей
         for part, origTrans in pairs(Invisibility.originalTransparencies) do
             pcall(function() part.Transparency = origTrans end)
         end
-        -- Восстанавливаем BillboardGui
         for billboard, origState in pairs(Invisibility.originalBillboardStates) do
             pcall(function() billboard.Enabled = origState end)
         end
@@ -169,7 +174,6 @@ function Invisibility.disable()
         local pauseMenu = safeFind(CoreGui:FindFirstChild("RobloxGui"), "PauseMenu")
         if pauseMenu then
             pauseMenu.Visible = Invisibility.originalPauseMenuVisible
-            -- Восстанавливаем дочерние элементы, если нужно
         end
         Invisibility.originalPauseMenuVisible = nil
     end
@@ -186,13 +190,13 @@ function Invisibility.disable()
     print("[DeltaPhantom] Невидимость отключена.")
 end
 
--- ===================== ФУНКЦИЯ СЛЕЖЕНИЯ =====================
+-- ===================== СЛЕЖЕНИЕ =====================
 local Tracking = {}
 Tracking.currentConnection = nil
+Tracking.mouseWheelConnection = nil
 
 function Tracking.enable(targetPlayerName)
     if watchEnabled then
-        -- если уже включено, просто сменим цель
         watchTarget = Players:FindFirstChild(targetPlayerName)
         if not watchTarget then
             warn("[DeltaPhantom] Игрок " .. targetPlayerName .. " не найден.")
@@ -211,11 +215,9 @@ function Tracking.enable(targetPlayerName)
     watchTarget = target
     watchEnabled = true
 
-    -- Настройка камеры
     local camera = workspace.CurrentCamera
     camera.CameraType = Enum.CameraType.Scriptable
 
-    -- Запускаем цикл обновления камеры
     Tracking.currentConnection = RunService.RenderStepped:Connect(function(deltaTime)
         if not watchEnabled or not watchTarget then
             return
@@ -223,7 +225,6 @@ function Tracking.enable(targetPlayerName)
 
         local character = watchTarget.Character
         if not character then
-            -- цель умерла или перерождается – можно плавно держать последнюю позицию
             return
         end
 
@@ -236,39 +237,33 @@ function Tracking.enable(targetPlayerName)
         local targetPosition = humanoidRoot.Position
         local targetLookVector = head.CFrame.LookVector
 
-        -- Вычисляем желаемую позицию камеры в зависимости от режима
         local desiredCFrame
         if watchMode == "First" then
-            -- От первого лица: камера в глазах цели
-            desiredCFrame = head.CFrame * CFrame.new(0, 0.1, 0)   -- небольшое смещение вверх
+            desiredCFrame = head.CFrame * CFrame.new(0, 0.1, 0)
         elseif watchMode == "Second" then
-            -- От второго лица: камера позади цели, смотрит на неё
-            local behind = head.CFrame * CFrame.new(0, 0, 5)  -- 5 юнитов позади головы
+            local behind = head.CFrame * CFrame.new(0, 0, 5)
             desiredCFrame = CFrame.lookAt(behind.Position, head.Position)
         elseif watchMode == "Third" then
-            -- Стандартное третье лицо: позади и немного сверху
             local offset = (head.CFrame.LookVector * -zoomDistance) + Vector3.new(0, 3, 0)
             local camPos = head.Position + offset
             desiredCFrame = CFrame.lookAt(camPos, head.Position)
         elseif watchMode == "Far" then
-            -- Издалека: сильно отдалено, можно зумить
-            local offset = (head.CFrame.LookVector * -zoomDistance) + Vector3.new(0, 8, 0)
+            -- Уменьшена высота и начальная дистанция (zoomDistance по умолчанию 5)
+            local offset = (head.CFrame.LookVector * -zoomDistance) + Vector3.new(0, 4, 0)
             local camPos = head.Position + offset
             desiredCFrame = CFrame.lookAt(camPos, head.Position)
         end
 
-        -- Плавное перемещение камеры (Lerp)
         local currentCFrame = camera.CFrame
-        local smoothCFrame = currentCFrame:Lerp(desiredCFrame, 0.2)  -- коэффициент сглаживания
+        local smoothCFrame = currentCFrame:Lerp(desiredCFrame, 0.2)
         camera.CFrame = smoothCFrame
     end)
 
-    -- Обработчик колесика мыши для изменения zoomDistance
     Tracking.mouseWheelConnection = UserInputService.InputChanged:Connect(function(input)
         if not watchEnabled then return end
         if input.UserInputType == Enum.UserInputType.MouseWheel then
             if watchMode == "Third" or watchMode == "Far" then
-                zoomDistance = zoomDistance - input.Position.Z * 0.1  -- прокрутка вверх приближает
+                zoomDistance = zoomDistance - input.Position.Z * 0.1
                 zoomDistance = math.clamp(zoomDistance, 1, 100)
             end
         end
@@ -290,31 +285,30 @@ function Tracking.disable()
         Tracking.mouseWheelConnection = nil
     end
 
-    -- Возвращаем камеру в обычный режим
     local camera = workspace.CurrentCamera
     camera.CameraType = Enum.CameraType.Custom
-    -- Сбросим Subject на игрока
     camera.CameraSubject = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
 
     watchTarget = nil
     print("[DeltaPhantom] Слежение отключено.")
 end
 
--- Переключение режимов слежения без отключения
 function Tracking.setMode(mode)
     if mode == "First" or mode == "Second" or mode == "Third" or mode == "Far" then
         watchMode = mode
-        -- При переключении в First/Second стоит сбросить zoomDistance к дефолту
+        -- Настройки зума для комфортного обзора
         if mode == "First" or mode == "Second" then
             zoomDistance = 5
-        else
+        elseif mode == "Third" then
             zoomDistance = 10
+        elseif mode == "Far" then
+            zoomDistance = 5   -- теперь ближе, чтобы цель не была мелкой
         end
         print("[DeltaPhantom] Режим слежения изменён на " .. mode)
     end
 end
 
--- ===================== ФУНКЦИЯ ТЕЛЕПОРТА =====================
+-- ===================== ТЕЛЕПОРТ =====================
 local function teleportToPlayer(targetName)
     local target = Players:FindFirstChild(targetName)
     if not target then
@@ -346,16 +340,15 @@ local function teleportToPlayer(targetName)
         return
     end
 
-    -- Телепорт: ставим CFrame цели + смещение 3 юнита вверх, чтобы не застрять в земле
     localHRP.CFrame = targetHRP.CFrame * CFrame.new(0, 3, 0)
     print("[DeltaPhantom] Телепортирован к " .. targetName)
 end
 
--- ===================== СОЗДАНИЕ ГЛАВНОГО МЕНЮ =====================
+-- ===================== СОЗДАНИЕ ГЛАВНОГО МЕНЮ (v1.1) =====================
 local function createUI()
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "DeltaPhantomGUI"
-    screenGui.Parent = CoreGui  -- чтобы меню не сбрасывалось при ресете игры
+    screenGui.Parent = CoreGui
     screenGui.ResetOnSpawn = false
     screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
@@ -363,20 +356,19 @@ local function createUI()
     local mainFrame = Instance.new("Frame")
     mainFrame.Name = "Main"
     mainFrame.Size = UDim2.new(0, 280, 0, 400)
-    mainFrame.Position = UDim2.new(0, 10, 0.5, -200)   -- слева по центру
-    mainFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 10)  -- почти чёрный
+    mainFrame.Position = UDim2.new(0, -300, 0.5, -200)   -- начальная скрытая позиция для анимации
+    mainFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
     mainFrame.BackgroundTransparency = 0.15
     mainFrame.BorderSizePixel = 0
     mainFrame.Active = true
     mainFrame.Draggable = true
     mainFrame.Parent = screenGui
 
-    -- Скругление углов
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0, 8)
     corner.Parent = mainFrame
 
-    -- Тень (эмуляция через дополнительный фрейм подложку)
+    -- Тень (фоновая подложка)
     local shadowFrame = Instance.new("Frame")
     shadowFrame.Size = UDim2.new(1, 0, 1, 0)
     shadowFrame.Position = UDim2.new(0, 0, 0, 0)
@@ -400,7 +392,6 @@ local function createUI()
     titleLabel.TextSize = 20
     titleLabel.Parent = mainFrame
 
-    -- Разделитель
     local divider = Instance.new("Frame")
     divider.Size = UDim2.new(1, -20, 0, 1)
     divider.Position = UDim2.new(0, 10, 0, 40)
@@ -408,7 +399,9 @@ local function createUI()
     divider.BorderSizePixel = 0
     divider.Parent = mainFrame
 
-    -- Список игроков (выпадающий)
+    -- ===== ЭЛЕМЕНТЫ УПРАВЛЕНИЯ =====
+
+    -- 1. Кнопка выбора игрока (дропдаун)
     local playerDropdown = Instance.new("TextButton")
     playerDropdown.Size = UDim2.new(1, -20, 0, 30)
     playerDropdown.Position = UDim2.new(0, 10, 0, 50)
@@ -422,24 +415,30 @@ local function createUI()
     dropdownCorner.Parent = playerDropdown
     playerDropdown.Parent = mainFrame
 
-    -- Контейнер для списка игроков (скрытый фрейм)
-    local playerListFrame = Instance.new("Frame")
-    playerListFrame.Size = UDim2.new(1, -20, 0, 0)  -- высота будет динамической
+    -- ScrollingFrame для списка игроков
+    local playerListFrame = Instance.new("ScrollingFrame")
+    playerListFrame.Size = UDim2.new(1, -20, 0, 120)   -- фиксированная высота с прокруткой
     playerListFrame.Position = UDim2.new(0, 10, 0, 85)
     playerListFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
     playerListFrame.BackgroundTransparency = 0.1
     playerListFrame.Visible = false
     playerListFrame.BorderSizePixel = 0
+    playerListFrame.ScrollBarThickness = 6
+    playerListFrame.ScrollBarImageColor3 = Color3.fromRGB(100, 100, 100)
+    playerListFrame.CanvasSize = UDim2.new(0, 0, 0, 0)  -- будет задаваться динамически
+    playerListFrame.ZIndex = 5
     local listCorner = Instance.new("UICorner")
     listCorner.CornerRadius = UDim.new(0, 4)
     listCorner.Parent = playerListFrame
     playerListFrame.Parent = mainFrame
 
-    -- Функция обновления списка игроков
+    -- Функция наполнения скроллящегося списка
     local function populatePlayerList()
-        -- Очищаем старый список
+        -- Удаляем старые кнопки
         for _, child in ipairs(playerListFrame:GetChildren()) do
-            child:Destroy()
+            if child:IsA("TextButton") then
+                child:Destroy()
+            end
         end
 
         local players = Players:GetPlayers()
@@ -447,8 +446,8 @@ local function createUI()
         for _, player in ipairs(players) do
             if player ~= LocalPlayer then
                 local btn = Instance.new("TextButton")
-                btn.Size = UDim2.new(1, 0, 0, 25)
-                btn.Position = UDim2.new(0, 0, 0, yOffset)
+                btn.Size = UDim2.new(1, -6, 0, 25)
+                btn.Position = UDim2.new(0, 3, 0, yOffset)
                 btn.Text = player.Name
                 btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
                 btn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -463,7 +462,6 @@ local function createUI()
                 btn.MouseButton1Click:Connect(function()
                     playerDropdown.Text = player.Name
                     playerListFrame.Visible = false
-                    -- Сохраняем выбранного игрока для последующих действий
                     Gui.selectedPlayer = player
                 end)
 
@@ -471,35 +469,58 @@ local function createUI()
             end
         end
 
-        -- Высота фрейма под количество кнопок
-        playerListFrame.Size = UDim2.new(1, -20, 0, math.max(yOffset, 25))
+        -- Обновляем CanvasSize под количество элементов
+        playerListFrame.CanvasSize = UDim2.new(0, 0, 0, math.max(yOffset, 10))
     end
 
-    -- Показать/скрыть список по клику на дропдаун
+    -- Показать/скрыть список
     playerDropdown.MouseButton1Click:Connect(function()
-        playerListFrame.Visible = not playerListFrame.Visible
         if playerListFrame.Visible then
+            playerListFrame.Visible = false
+        else
             populatePlayerList()
+            playerListFrame.Visible = true
         end
     end)
 
-    -- При нажатии вне списка скрывать (костыль, но работает)
+    -- Скрытие списка при клике вне (простое решение)
     mainFrame.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             if playerListFrame.Visible then
-                -- небольшая задержка, чтобы кнопка успела обработаться
                 task.wait(0.1)
                 playerListFrame.Visible = false
             end
         end
     end)
 
-    Gui.selectedPlayer = nil   -- будет хранить объект Player
+    Gui.selectedPlayer = nil
 
-    -- Кнопка невидимости
+    -- 2. Телепорт
+    local teleportButton = Instance.new("TextButton")
+    teleportButton.Size = UDim2.new(1, -20, 0, 35)
+    teleportButton.Position = UDim2.new(0, 10, 0, 130)   -- сдвинуто вниз
+    teleportButton.Text = "Телепорт к игроку"
+    teleportButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    teleportButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    teleportButton.Font = Enum.Font.Gotham
+    teleportButton.TextSize = 14
+    local teleCorner = Instance.new("UICorner")
+    teleCorner.CornerRadius = UDim.new(0, 4)
+    teleCorner.Parent = teleportButton
+    teleportButton.Parent = mainFrame
+
+    teleportButton.MouseButton1Click:Connect(function()
+        if not Gui.selectedPlayer then
+            warn("[DeltaPhantom] Сначала выберите игрока.")
+            return
+        end
+        teleportToPlayer(Gui.selectedPlayer.Name)
+    end)
+
+    -- 3. Невидимость
     local invisButton = Instance.new("TextButton")
     invisButton.Size = UDim2.new(1, -20, 0, 35)
-    invisButton.Position = UDim2.new(0, 10, 0, 130)
+    invisButton.Position = UDim2.new(0, 10, 0, 170)
     invisButton.Text = "Невидимость: ВЫКЛ"
     invisButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
     invisButton.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -520,10 +541,10 @@ local function createUI()
         end
     end)
 
-    -- Кнопка активации слежения
+    -- 4. Слежение
     local watchToggle = Instance.new("TextButton")
     watchToggle.Size = UDim2.new(1, -20, 0, 35)
-    watchToggle.Position = UDim2.new(0, 10, 0, 175)
+    watchToggle.Position = UDim2.new(0, 10, 0, 210)
     watchToggle.Text = "Слежение: ВЫКЛ"
     watchToggle.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
     watchToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -536,7 +557,6 @@ local function createUI()
 
     watchToggle.MouseButton1Click:Connect(function()
         if not watchEnabled then
-            -- Если слежение выключено, включаем (требуется выбранный игрок)
             if not Gui.selectedPlayer then
                 warn("[DeltaPhantom] Не выбран игрок для слежения.")
                 return
@@ -549,10 +569,10 @@ local function createUI()
         end
     end)
 
-    -- Радиокнопки для режима слежения (горизонтальный ряд)
+    -- 5. Режимы камеры
     local modeLabel = Instance.new("TextLabel")
     modeLabel.Size = UDim2.new(1, -20, 0, 20)
-    modeLabel.Position = UDim2.new(0, 10, 0, 220)
+    modeLabel.Position = UDim2.new(0, 10, 0, 250)
     modeLabel.BackgroundTransparency = 1
     modeLabel.Text = "Режим камеры:"
     modeLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
@@ -565,7 +585,7 @@ local function createUI()
     for i, mode in ipairs(modes) do
         local btn = Instance.new("TextButton")
         btn.Size = UDim2.new(0.2, -5, 0, 25)
-        btn.Position = UDim2.new(0, 10 + (i-1)*(0.2*280 - 2), 0, 245)
+        btn.Position = UDim2.new(0, 10 + (i-1)*(0.2*280 - 2), 0, 275)
         btn.Text = mode == "First" and "1-е" or (mode == "Second" and "2-е" or (mode == "Third" and "3-е" or "Дал"))
         btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
         btn.TextColor3 = Color3.fromRGB(200, 200, 200)
@@ -577,47 +597,22 @@ local function createUI()
         btn.Parent = mainFrame
 
         btn.MouseButton1Click:Connect(function()
-            -- Сброс цвета всех кнопок
             for _, b in ipairs(modeButtons) do
                 b.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
             end
             btn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
             Tracking.setMode(mode)
-            if watchEnabled then
-                -- обновить текст кнопки слежения, показав режим
+            if watchEnabled and Gui.selectedPlayer then
                 watchToggle.Text = "Слежение: ВКЛ (" .. Gui.selectedPlayer.Name .. ") " .. mode
             end
         end)
         table.insert(modeButtons, btn)
-        -- По умолчанию выбран Third
         if mode == "Third" then
-            btn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+            btn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)  -- выделение по умолчанию
         end
     end
 
-    -- Кнопка телепорта
-    local teleportButton = Instance.new("TextButton")
-    teleportButton.Size = UDim2.new(1, -20, 0, 35)
-    teleportButton.Position = UDim2.new(0, 10, 0, 280)
-    teleportButton.Text = "Телепорт к игроку"
-    teleportButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-    teleportButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    teleportButton.Font = Enum.Font.Gotham
-    teleportButton.TextSize = 14
-    local teleCorner = Instance.new("UICorner")
-    teleCorner.CornerRadius = UDim.new(0, 4)
-    teleCorner.Parent = teleportButton
-    teleportButton.Parent = mainFrame
-
-    teleportButton.MouseButton1Click:Connect(function()
-        if not Gui.selectedPlayer then
-            warn("[DeltaPhantom] Сначала выберите игрока из списка.")
-            return
-        end
-        teleportToPlayer(Gui.selectedPlayer.Name)
-    end)
-
-    -- Кнопка скрытия/показа меню (маленькая иконка в углу)
+    -- ===== КНОПКА СВОРАЧИВАНИЯ / РАЗВОРАЧИВАНИЯ =====
     local toggleButton = Instance.new("TextButton")
     toggleButton.Size = UDim2.new(0, 30, 0, 30)
     toggleButton.Position = UDim2.new(0, mainFrame.Size.X.Offset - 30, 0, 5)
@@ -631,38 +626,31 @@ local function createUI()
     toggleCorner.Parent = toggleButton
     toggleButton.Parent = mainFrame
 
-    local mainFrameVisible = true
-    local originalSize = mainFrame.Size
-    local collapsedSize = UDim2.new(0, 30, 0, 30)
+    local menuExpanded = true
+    local expandedPosition = UDim2.new(0, 10, 0.5, -200)
+    -- Свёрнутая позиция: уезжаем влево так, чтобы видна была только кнопка (ширина 30)
+    local collapsedPosition = UDim2.new(0, -(mainFrame.Size.X.Offset - 30), 0.5, -200)
+
     toggleButton.MouseButton1Click:Connect(function()
-        if mainFrameVisible then
-            -- Свернуть меню в иконку
-            mainFrame:TweenSize(collapsedSize, "Out", "Quad", 0.3, true)
-            for _, child in ipairs(mainFrame:GetChildren()) do
-                if child ~= toggleButton and child ~= shadowFrame and child ~= toggleCorner and child.Name ~= "UICorner" then
-                    pcall(function() child.Visible = false end)
-                end
-            end
+        if menuExpanded then
+            -- Свернуть: плавно перемещаем меню за край
+            tweenPos(mainFrame, collapsedPosition, 0.3, nil)
             toggleButton.Text = "+"
-            mainFrameVisible = false
+            menuExpanded = false
         else
             -- Развернуть
-            mainFrame:TweenSize(originalSize, "Out", "Quad", 0.3, true)
-            for _, child in ipairs(mainFrame:GetChildren()) do
-                pcall(function() child.Visible = true end)
-            end
+            tweenPos(mainFrame, expandedPosition, 0.3, nil)
             toggleButton.Text = "−"
-            mainFrameVisible = true
+            menuExpanded = true
         end
     end)
 
-    -- Анимация появления меню
-    mainFrame.Position = UDim2.new(0, -300, 0.5, -200)   -- начальная позиция за экраном слева
-    tweenPos(mainFrame, UDim2.new(0, 10, 0.5, -200), 0.5, function()
+    -- ===== АНИМАЦИЯ ПЕРВОГО ПОЯВЛЕНИЯ =====
+    tweenPos(mainFrame, expandedPosition, 0.5, function()
         print("[DeltaPhantom] Меню готово.")
     end)
 
-    -- Сохраняем ссылки для возможной доработки
+    -- Сохраняем ссылки
     Gui.screenGui = screenGui
     Gui.mainFrame = mainFrame
     Gui.invisButton = invisButton
@@ -670,40 +658,30 @@ local function createUI()
     Gui.playerDropdown = playerDropdown
 end
 
--- ===================== ИНИЦИАЛИЗАЦИЯ СКРИПТА =====================
--- Обработчик возможного уничтожения GUI при ресетах (необязательно, т.к. CoreGui)
+-- ===================== ОБРАБОТЧИКИ ПЕРЕРОЖДЕНИЯ =====================
 LocalPlayer.CharacterAdded:Connect(function(character)
-    -- Если невидимость была включена, переприменить её на нового персонажа
     if invisEnabled then
+        -- Отключаем старый слушатель (на всякий случай)
+        if invisDescendantConn then
+            invisDescendantConn:Disconnect()
+        end
         Invisibility.applyToCharacter(character)
+        -- Подключаем новый слушатель на нового персонажа
+        invisDescendantConn = character.DescendantAdded:Connect(function(descendant)
+            if descendant:IsA("BillboardGui") then
+                descendant.Enabled = false
+            end
+        end)
     end
-    -- Если слежение включено, оно всё ещё работает с тем же watchTarget,
-    -- нужно просто продолжать цикл (он проверяет наличие character)
 end)
 
--- Запускаем создание меню
+-- ===================== ЗАПУСК =====================
 createUI()
 
 print([[
 ========================================
-  Delta Phantom v1.0 загружен!
+  Delta Phantom v1.1 загружен!
   Автор: Абсолютный Коджер
-  Наслаждайся божественным читом.
+  Обновлено по требованиям Лафиги.
 ========================================
 ]])
-
--- ===================== ДОПОЛНИТЕЛЬНАЯ ОБРАБОТКА ОШИБОК =====================
--- Защита от мерцания и экстренное выключение всех функций при закрытии скрипта
-game:GetService("RunService").Heartbeat:Connect(function()
-    -- Если скрипт каким-то образом перестаёт выполняться, можно добавить мониторинг
-end)
-
--- Принудительное отключение при удалении LocalPlayer (выход из игры)
-LocalPlayer.OnCharacterRemoving:Connect(function()
-    if invisEnabled then
-        Invisibility.disable()
-    end
-    if watchEnabled then
-        Tracking.disable()
-    end
-end)
