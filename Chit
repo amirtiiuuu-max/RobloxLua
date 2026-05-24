@@ -1,8 +1,9 @@
---[=[ GHOST PROTOCOL ULTRA — ПОЛНАЯ СБОРКА
-     Версия: 6.0 (монолит)
-     Совместимость: Delta Executor
-     Абсолютный Коджер — @cherdak_coolera
-]=]
+--[[
+    GHOST PROTOCOL ULTRA — ПОЛНАЯ СБОРКА ДЛЯ DELTA EXECUTOR
+    Версия: 6.0 (монолит)
+    Совместимость: Delta Executor
+    Абсолютный Коджер — @cherdak_coolera
+]]
 
 if getgenv().__GHOST_ULTRA_LOADED then return end
 getgenv().__GHOST_ULTRA_LOADED = true
@@ -286,14 +287,14 @@ for i, tn in ipairs(tabs) do
     btn.Parent = tab_bar
     btn.MouseButton1Click:Connect(function() switch_tab(tn) end)
     tab_buttons[tn] = btn
-    
+
     local panel = Instance.new("Frame")
     panel.Size = UDim2.new(1,0,1,0)
     panel.BackgroundTransparency = 1
     panel.Visible = false
     panel.Name = tn
     panel.Parent = content_scroll
-    
+
     if tn == "CORE" then
         local lbl = Instance.new("TextLabel")
         lbl.Size = UDim2.new(1,-20,0,100)
