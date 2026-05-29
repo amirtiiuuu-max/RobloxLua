@@ -1,46 +1,210 @@
-local players=game:GetService("Players")local lp=players.LocalPlayer
-local rs=game:GetService("ReplicatedStorage")local ws=workspace
-local cg=game:GetService("CoreGui")local vu=game:GetService("VirtualUser")
-local hb=game:GetService("HttpService")local ts=game:GetService("TweenService")
-local uis=game:GetService("UserInputService")local rs2=game:GetService("RunService")
-_G.Z=_G.Z or{}local Z=_G.Z
-Z.c={}Z.a=true
-local scr=Instance.new("ScreenGui")scr.Name="Z"scr.Parent=cg
-local fr=Instance.new("Frame")fr.Size=UDim2.new(0,400,0,500)fr.Position=UDim2.new(0.5,-200,0.5,-250)fr.BackgroundColor3=Color3.fromRGB(20,20,30)fr.BorderSizePixel=0
-fr.Parent=scr
-local ti=Instance.new("TextLabel")ti.Size=UDim2.new(1,0,0,40)ti.BackgroundColor3=Color3.fromRGB(40,40,60)ti.Text="ZEUS MONEY"ti.TextColor3=Color3.fromRGB(255,215,0)ti.TextScaled=true ti.Font=Enum.Font.GothamBold ti.Parent=fr
-local cl=Instance.new("TextButton")cl.Size=UDim2.new(0,30,0,30)cl.Position=UDim2.new(1,-35,0,5)cl.BackgroundColor3=Color3.fromRGB(80,20,20)cl.Text="X"cl.TextColor3=Color3.fromRGB(255,255,255)cl.Parent=ti
-cl.MouseButton1Click:Connect(function()scr.Enabled=false end)
-local sc=Instance.new("ScrollingFrame")sc.Size=UDim2.new(1,-10,1,-50)sc.Position=UDim2.new(0,5,0,45)sc.BackgroundTransparency=1 sc.CanvasSize=UDim2.new(0,0,0,800)sc.ScrollBarThickness=6 sc.Parent=fr
-local ul=Instance.new("UIListLayout")ul.Padding=UDim.new(0,8)ul.SortOrder=Enum.SortOrder.LayoutOrder ul.Parent=sc
-local function btn(txt,cb)local b=Instance.new("TextButton")b.Size=UDim2.new(1,0,0,45)b.BackgroundColor3=Color3.fromRGB(50,50,70)b.Text=txt b.TextColor3=Color3.fromRGB(255,255,255)b.Font=Enum.Font.Gotham b.TextScaled=true b.BorderSizePixel=0 b.Parent=sc b.MouseButton1Click:Connect(cb)end
-local function lbl(txt)local l=Instance.new("TextLabel")l.Size=UDim2.new(1,0,0,30)l.BackgroundTransparency=1 l.Text=txt l.TextColor3=Color3.fromRGB(200,200,200)l.TextXAlignment=Enum.TextXAlignment.Left l.Font=Enum.Font.Gotham l.TextScaled=true l.Parent=sc end
-lbl("--- ПРЯМОЕ ИЗМЕНЕНИЕ ---")
-btn("УСТАНОВИТЬ 999 ТРИЛЛИОНОВ",function()Z.mod()end)
-btn("БЛОКИРОВАТЬ УМЕНЬШЕНИЕ",function()Z.block()end)
-lbl("--- УДАЛЁННЫЕ СОБЫТИЯ ---")
-btn("ПЕРЕХВАТ REMOTE",function()Z.hijack()end)
-btn("АВТОФАРМ REMOTE",function()Z.remotefarm()end)
-lbl("--- АВТОМАТИЧЕСКИЙ ФАРМ ---")
-btn("ЗАПУСТИТЬ ВСЁ СРАЗУ",function()Z.all()end)
-btn("АВТОКЛИКЕР ПОКУПОК",function()Z.clicker()end)
-lbl("--- РАКЕТНЫЕ ВОЙНЫ ---")
-btn("СПЕЦИАЛЬНЫЙ ЭКСПЛОЙТ",function()Z.rw()end)
-lbl("--- ПОЛНЫЙ КОНТРОЛЬ ---")
-btn("ТЕЛЕПОРТ К МОНЕТАМ",function()Z.tpcoins()end)
-btn("ESP МОНЕТ",function()Z.esp()end)
-btn("РАЗБЛОКИРОВАТЬ МАГАЗИН",function()Z.shop()end)
-function Z.mod()local ls=lp:FindFirstChild("leaderstats")if ls then for _,v in pairs(ls:GetChildren())do if v:IsA("NumberValue")or v:IsA("IntValue")then pcall(function()v.Value=9e14 end)end end else for _,v in pairs(game:GetDescendants())do if v:IsA("NumberValue")and string.match(v.Name:lower(),"coin|cash|money|gem")then pcall(function()v.Value=9e14 end)end end end end
-function Z.block()local ls=lp:FindFirstChild("leaderstats")if ls then for _,v in pairs(ls:GetChildren())do if v:IsA("NumberValue")or v:IsA("IntValue")then Z.last=Z.last or v.Value local con=v.Changed:Connect(function(n)if n<(Z.last or 0)then v.Value=Z.last else Z.last=n end end)table.insert(Z.c,con)end end end end
-function Z.hijack()for _,r in pairs(rs:GetDescendants())do if r:IsA("RemoteEvent")and string.match(r.Name:lower(),"buy|purchase|shop|upgrade|money")then local o=r.OnClientEvent r.OnClientEvent=function(...)local a={...}for i,arg in pairs(a)do if type(arg)=="number"and arg>0 and arg<1e7 then a[i]=0 end end if o then o(unpack(a))end end end end end
-Z.farmrun=false
-function Z.remotefarm()Z.farmrun=true local rlist={}for _,r in pairs(rs:GetDescendants())do if r:IsA("RemoteEvent")and string.match(r.Name:lower(),"reward|collect|gain|addmoney")then table.insert(rlist,r)end end spawn(function()while Z.farmrun do for _,r in pairs(rlist)do pcall(function()r:FireServer("claim",math.random(1000,50000))end)end task.wait(0.05)end end)end
-Z.clickrun=false
-function Z.clicker()Z.clickrun=true spawn(function()while Z.clickrun do for _,b in pairs(lp.PlayerGui:GetDescendants())do if b:IsA("TextButton")and(string.match(b.Name:lower(),"buy")or string.match(b.Text:lower(),"buy"))then pcall(function()b:Click()end)end end task.wait(0.01)end end)end
-function Z.rw()local pg=lp.PlayerGui local mg=pg:FindFirstChild("MainGUI")or pg:FindFirstChild("GameGUI")if mg then local cl=mg:FindFirstChild("CurrencyLabel")or mg:FindFirstChild("MoneyText")if cl and cl:IsA("TextLabel")then spawn(function()while true do pcall(function()cl.Text="∞"end)task.wait(0.5)end end)end end if _G.PlayerData then _G.PlayerData.Money=9e99 end if shared.PlayerCurrency then shared.PlayerCurrency=1e308 end end
-function Z.all()Z.mod()Z.block()Z.remotefarm()Z.clicker()Z.rw()end
-function Z.tpcoins()for _,p in pairs(ws:GetDescendants())do if p:IsA("BasePart")and(string.match(p.Name:lower(),"coin")or string.match(p.Name:lower(),"money")or string.match(p.Name:lower(),"chest"))and p.Position then pcall(function()lp.Character.HumanoidRootPart.CFrame=CFrame.new(p.Position)task.wait(0.1)end)end end end
-Z.espo={}
-function Z.esp()for _,p in pairs(ws:GetDescendants())do if p:IsA("BasePart")and(string.match(p.Name:lower(),"coin")or string.match(p.Name:lower(),"money"))then local bg=Instance.new("BillboardGui")bg.Size=UDim2.new(0,2,0,2)bg.AlwaysOnTop=true bg.Parent=p local tx=Instance.new("TextLabel")tx.Size=UDim2.new(1,0,1,0)tx.BackgroundTransparency=1 tx.Text="💰"tx.TextScaled=true tx.Parent=bg table.insert(Z.espo,bg)end end end
-function Z.shop()for _,f in pairs(lp.PlayerGui:GetDescendants())do if f:IsA("Frame")and f:FindFirstChild("BuyButton")then local bb=f.BuyButton if bb:IsA("TextButton")then local pl=f:FindFirstChild("PriceLabel")if pl and pl:IsA("TextLabel")then pcall(function()pl.Text="0"end)end pcall(function()bb:Click()end)end end end end
-print("ZEUS MONEY SCRIPT LOADED")
+(function()
+    local plr = game:GetService("Players").LocalPlayer
+    local rs = game:GetService("ReplicatedStorage")
+    local ws = game:GetService("Workspace")
+    local guiRoot = game:GetService("CoreGui")
+    if not guiRoot then guiRoot = plr.PlayerGui end
+
+    local screen = Instance.new("ScreenGui")
+    screen.Name = "ZMG"
+    screen.ResetOnSpawn = false
+    screen.Parent = guiRoot
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 380, 0, 520)
+    frame.Position = UDim2.new(0.5, -190, 0.5, -260)
+    frame.BackgroundColor3 = Color3.fromRGB(15,15,25)
+    frame.BorderSizePixel = 0
+    frame.Active = true
+    frame.Draggable = true
+    frame.Parent = screen
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1,0,0,35)
+    title.BackgroundColor3 = Color3.fromRGB(60,60,90)
+    title.Text = "ZEUS CASH"
+    title.TextColor3 = Color3.fromRGB(255,200,0)
+    title.TextScaled = true
+    title.Font = Enum.Font.GothamBold
+    title.Parent = frame
+
+    local close = Instance.new("TextButton")
+    close.Size = UDim2.new(0,30,0,30)
+    close.Position = UDim2.new(1,-32,0,2)
+    close.BackgroundColor3 = Color3.fromRGB(150,20,20)
+    close.Text = "X"
+    close.TextColor3 = Color3.fromRGB(255,255,255)
+    close.Parent = title
+    close.MouseButton1Click:Connect(function() screen.Enabled = false end)
+
+    local scroll = Instance.new("ScrollingFrame")
+    scroll.Size = UDim2.new(1,-10,1,-45)
+    scroll.Position = UDim2.new(0,5,0,40)
+    scroll.BackgroundTransparency = 1
+    scroll.CanvasSize = UDim2.new(0,0,0,600)
+    scroll.ScrollBarThickness = 5
+    scroll.Parent = frame
+
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0,7)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Parent = scroll
+
+    local function makeBtn(text, cb)
+        local b = Instance.new("TextButton")
+        b.Size = UDim2.new(1,0,0,42)
+        b.BackgroundColor3 = Color3.fromRGB(45,45,65)
+        b.Text = text
+        b.TextColor3 = Color3.fromRGB(255,255,255)
+        b.TextScaled = true
+        b.Font = Enum.Font.Gotham
+        b.BorderSizePixel = 0
+        b.Parent = scroll
+        b.MouseButton1Click:Connect(cb)
+    end
+
+    local function makeLabel(txt)
+        local l = Instance.new("TextLabel")
+        l.Size = UDim2.new(1,0,0,28)
+        l.BackgroundTransparency = 1
+        l.Text = txt
+        l.TextColor3 = Color3.fromRGB(180,220,255)
+        l.TextXAlignment = Enum.TextXAlignment.Left
+        l.Font = Enum.Font.GothamBold
+        l.TextScaled = true
+        l.Parent = scroll
+    end
+
+    makeLabel("=== ПРЯМОЙ ЧИТ ===")
+    makeBtn("9e14 ДЕНЕГ", function()
+        local ls = plr:FindFirstChild("leaderstats")
+        if ls then
+            for _,v in pairs(ls:GetChildren()) do
+                if v:IsA("NumberValue") or v:IsA("IntValue") then
+                    v.Value = 9e14
+                end
+            end
+        else
+            for _,v in pairs(game:GetDescendants()) do
+                if v:IsA("NumberValue") and v.Name:lower():match("coin|cash|money|gem|credit") then
+                    v.Value = 9e14
+                end
+            end
+        end
+    end)
+
+    makeBtn("ЗАМОРОЗИТЬ БАЛАНС", function()
+        local ls = plr:FindFirstChild("leaderstats")
+        if ls then
+            for _,v in pairs(ls:GetChildren()) do
+                if v:IsA("NumberValue") or v:IsA("IntValue") then
+                    local last = v.Value
+                    v.Changed:Connect(function(new)
+                        if new < last then
+                            v.Value = last
+                        else
+                            last = new
+                        end
+                    end)
+                end
+            end
+        end
+    end)
+
+    makeLabel("=== REMOTE ХАК ===")
+    makeBtn("ОБНУЛИТЬ ЦЕНЫ (перехват)", function()
+        for _,r in pairs(rs:GetDescendants()) do
+            if r:IsA("RemoteEvent") and r.Name:lower():match("buy|purchase|shop") then
+                local old = r.OnClientEvent
+                r.OnClientEvent = function(...)
+                    local args = {...}
+                    for i,a in pairs(args) do
+                        if type(a)=="number" and a>0 and a<1e8 then args[i]=0 end
+                    end
+                    if old then old(unpack(args)) end
+                end
+            end
+        end
+    end)
+
+    makeBtn("СПАМ НАГРАДЫ", function()
+        local remotes = {}
+        for _,r in pairs(rs:GetDescendants()) do
+            if r:IsA("RemoteEvent") and r.Name:lower():match("reward|claim|collect") then
+                table.insert(remotes,r)
+            end
+        end
+        spawn(function()
+            for i=1,500 do
+                for _,r in pairs(remotes) do
+                    pcall(function() r:FireServer("claim",math.random(1000,50000)) end)
+                end
+                task.wait(0.03)
+            end
+        end)
+    end)
+
+    makeLabel("=== АВТОФАРМ ===")
+    makeBtn("АВТОКЛИКЕР ПОКУПКИ", function()
+        spawn(function()
+            while true do
+                for _,b in pairs(plr.PlayerGui:GetDescendants()) do
+                    if b:IsA("TextButton") and (b.Name:lower():match("buy") or (b.Text and b.Text:lower():match("buy"))) then
+                        pcall(function() b:Click() end)
+                    end
+                end
+                task.wait(0.01)
+            end
+        end)
+    end)
+
+    makeBtn("СБОР МОНЕТ С КАРТЫ", function()
+        for _,p in pairs(ws:GetDescendants()) do
+            if p:IsA("BasePart") and p.Name:lower():match("coin|money|chest") and p.Position then
+                pcall(function()
+                    plr.Character.HumanoidRootPart.CFrame = CFrame.new(p.Position)
+                    task.wait(0.05)
+                end)
+            end
+        end
+    end)
+
+    makeLabel("=== РАКЕТНЫЕ ВОЙНЫ ===")
+    makeBtn("БЕСКОНЕЧНЫЕ ДЕНЬГИ (RW)", function()
+        if _G.PlayerData then _G.PlayerData.Money = 9e99 end
+        if shared.PlayerCurrency then shared.PlayerCurrency = 1e308 end
+        local pgui = plr.PlayerGui
+        local main = pgui:FindFirstChild("MainGUI") or pgui:FindFirstChild("GameGUI")
+        if main then
+            local moneyLabel = main:FindFirstChild("CurrencyLabel") or main:FindFirstChild("MoneyText")
+            if moneyLabel then
+                spawn(function()
+                    while true do
+                        pcall(function() moneyLabel.Text = "∞" end)
+                        task.wait(0.5)
+                    end
+                end)
+            end
+        end
+        plr.Chat:Chat("Бесконечные деньги активированы")
+    end)
+
+    makeLabel("=== РАЗБЛОКИРОВКА ===")
+    makeBtn("КУПИТЬ ВСЁ ЗА 0", function()
+        for _,f in pairs(plr.PlayerGui:GetDescendants()) do
+            if f:IsA("Frame") and f:FindFirstChild("BuyButton") then
+                local price = f:FindFirstChild("PriceLabel")
+                if price and price:IsA("TextLabel") then
+                    pcall(function() price.Text = "0" end)
+                end
+                pcall(function() f.BuyButton:Click() end)
+            end
+        end
+    end)
+
+    makeBtn("ОТКЛЮЧИТЬ ГУИ", function()
+        screen.Enabled = false
+    end)
+
+    print("GUI загружен. Используй меню.")
+end)()
